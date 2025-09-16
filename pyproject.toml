@@ -10,6 +10,7 @@ dependencies = [
     "devtools>=0.12.2",
     "loguru>=0.7.3",
     "prompt-toolkit>=3.0.52",
+    "python-dotenv>=1.1.1",
     "rich>=13.0.0",
 ]
 

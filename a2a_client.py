@@ -1,8 +1,7 @@
+import os
 import asyncio
 from uuid import uuid4
-
 from devtools import pprint
-
 import httpx
 
 from a2a.client import A2ACardResolver, ClientFactory, ClientConfig
@@ -11,6 +10,10 @@ from a2a.types import (
     TextPart,
 )
 
+from dotenv import load_dotenv
+load_dotenv()
+
+PORT = os.environ.get('PORT', '9999')
 
 # ANSI color codes
 class Colors:
@@ -25,7 +28,7 @@ class Colors:
 
 
 class A2AREPL:
-    def __init__(self, base_url: str = 'http://localhost:9999'):
+    def __init__(self, base_url: str = f"http://localhost:{PORT}"):
         self.base_url = base_url
         self.client = None
         self.httpx_client = None
