@@ -3,6 +3,7 @@ import asyncio
 from uuid import uuid4
 from devtools import pprint
 import httpx
+import re
 
 from a2a.client import A2ACardResolver, ClientFactory, ClientConfig
 from a2a.types import (
@@ -24,6 +25,7 @@ class Colors:
     RED = '\033[91m'
     DIM = '\033[2m'
     BOLD = '\033[1m'
+    ITALIC = '\033[3m'
     RESET = '\033[0m'
 
 
@@ -34,6 +36,32 @@ class A2AREPL:
         self.httpx_client = None
         self.agent_name = None
         self.context_id = None
+        self.format_markdown = True  # Enable markdown formatting by default
+
+    def format_response(self, text: str) -> str:
+        """Format response text with basic markdown styling"""
+        if not self.format_markdown:
+            return text
+
+        # Bold text (**text** -> colored text)
+        text = re.sub(r'\*\*(.*?)\*\*', f'{Colors.BOLD}\\1{Colors.RESET}', text)
+
+        # Italic text (*text* -> italic text)
+        text = re.sub(r'\*([^*]+)\*', f'{Colors.ITALIC}\\1{Colors.RESET}', text)
+
+        # Code blocks (```code``` -> colored text)
+        text = re.sub(r'```(.*?)```', f'{Colors.CYAN}\\1{Colors.RESET}', text, flags=re.DOTALL)
+
+        # Inline code (`code` -> colored text)
+        text = re.sub(r'`([^`]+)`', f'{Colors.CYAN}\\1{Colors.RESET}', text)
+
+        # Headers (## Header -> colored text)
+        text = re.sub(r'^(#{1,6})\s*(.*?)$', f'{Colors.BOLD}\\2{Colors.RESET}', text, flags=re.MULTILINE)
+
+        # Bullet points (- item -> colored bullet)
+        text = re.sub(r'^-\s*(.*?)$', f'{Colors.GREEN}•{Colors.RESET} \\1', text, flags=re.MULTILINE)
+
+        return text
 
     async def initialize(self):
         """Initialize the client by fetching agent card and setting up connection"""
@@ -57,6 +85,46 @@ class A2AREPL:
             print(f"{Colors.RED}Connection failed: {e}{Colors.RESET}")
             raise
 
+    def _debug_print_event(self, event, debug: bool):
+        """Print debug information for an event"""
+        if debug:
+            print()
+            print(f"{Colors.YELLOW}DEBUG - Full event{Colors.RESET}")
+            pprint(event.__dict__)
+            print()
+
+    def _handle_context_id(self, event, debug: bool):
+        """Handle context_id storage from server response"""
+        if event.context_id and not self.context_id:
+            self.context_id = event.context_id
+            if debug:
+                print(f"{Colors.GREEN}Stored context_id: {self.context_id}{Colors.RESET}")
+
+    def _handle_message_parts(self, event, use_streaming: bool):
+        """Handle message parts in the event"""
+        for part in event.parts:
+            if hasattr(part, 'root') and hasattr(part.root, 'text'):
+                if use_streaming:
+                    print()  # Add newline after streaming
+                formatted_text = self.format_response(part.root.text)
+                print(formatted_text)
+
+    def _handle_artifact(self, artifact, use_streaming: bool):
+        """Handle a single artifact"""
+        if hasattr(artifact, 'data') and hasattr(artifact.data, 'text'):
+            if use_streaming:
+                print(artifact.data.text, end='', flush=True)
+            else:
+                formatted_text = self.format_response(artifact.data.text)
+                print(formatted_text)
+
+    def _handle_tuple_event(self, event, use_streaming: bool):
+        """Handle tuple event (task, update_event)"""
+        task, update_event = event
+        if update_event and hasattr(update_event, 'artifacts'):
+            for artifact in update_event.artifacts:
+                self._handle_artifact(artifact, use_streaming)
+
     async def send_message(self, text: str, use_streaming: bool = False, debug: bool = False):
         """Send a message to the agent"""
         if not self.client:
@@ -73,38 +141,14 @@ class A2AREPL:
         try:
             # The new send_message method returns an async iterator
             async for event in self.client.send_message(message):
-                # Debug: Print the entire event structure (if debug mode is enabled)
-                if debug:
-                    print()
-                    print(f"{Colors.YELLOW}DEBUG - Full event{Colors.RESET}")
-                    pprint(event.__dict__)
-                    print()
+                self._debug_print_event(event, debug)
 
                 # Handle different event types
                 if isinstance(event, Message):
-                    # Store context_id from server response
-                    if event.context_id and not self.context_id:
-                        self.context_id = event.context_id
-                        if debug:
-                            print(f"{Colors.GREEN}Stored context_id: {self.context_id}{Colors.RESET}")
-
-                    # Final message response
-                    for part in event.parts:
-                        if hasattr(part, 'root') and hasattr(part.root, 'text'):
-                            if use_streaming:
-                                print()  # Add newline after streaming
-                            print(part.root.text)
+                    self._handle_context_id(event, debug)
+                    self._handle_message_parts(event, use_streaming)
                 elif isinstance(event, tuple):
-                    # Task and event updates (task, event)
-                    task, update_event = event
-                    if update_event and hasattr(update_event, 'artifacts'):
-                        # Handle artifact updates for streaming
-                        for artifact in update_event.artifacts:
-                            if hasattr(artifact, 'data') and hasattr(artifact.data, 'text'):
-                                if use_streaming:
-                                    print(artifact.data.text, end='', flush=True)
-                                else:
-                                    print(artifact.data.text)
+                    self._handle_tuple_event(event, use_streaming)
 
         except Exception as e:
             print(f"{Colors.RED}Error: {e}{Colors.RESET}")
@@ -119,6 +163,7 @@ class A2AREPL:
         print()
         print(f"{Colors.CYAN}/stream{Colors.RESET} {Colors.DIM}- toggle streaming mode{Colors.RESET}")
         print(f"{Colors.CYAN}/debug{Colors.RESET}  {Colors.DIM}- toggle debug mode{Colors.RESET}")
+        print(f"{Colors.CYAN}/format{Colors.RESET} {Colors.DIM}- toggle markdown formatting{Colors.RESET}")
         print(f"{Colors.CYAN}/clear{Colors.RESET}  {Colors.DIM}- clear conversation context{Colors.RESET}")
         print(f"{Colors.CYAN}/help{Colors.RESET}   {Colors.DIM}- show this help{Colors.RESET}")
         print(f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}")
@@ -153,6 +198,11 @@ class A2AREPL:
                     status = f"{Colors.GREEN}ON{Colors.RESET}" if debug_mode else f"{Colors.DIM}OFF{Colors.RESET}"
                     print(f"{Colors.DIM}Debug mode: {status}{Colors.RESET}")
                     continue
+                elif user_input == '/format':
+                    self.format_markdown = not self.format_markdown
+                    status = f"{Colors.GREEN}ON{Colors.RESET}" if self.format_markdown else f"{Colors.DIM}OFF{Colors.RESET}"
+                    print(f"{Colors.DIM}Markdown formatting: {status}{Colors.RESET}")
+                    continue
                 elif user_input == '/clear':
                     self.context_id = None
                     print(f"{Colors.DIM}Conversation context cleared{Colors.RESET}")
@@ -160,6 +210,7 @@ class A2AREPL:
                 elif user_input == '/help':
                     print(f"{Colors.CYAN}/stream{Colors.RESET} {Colors.DIM}- toggle streaming mode{Colors.RESET}")
                     print(f"{Colors.CYAN}/debug{Colors.RESET}  {Colors.DIM}- toggle debug mode{Colors.RESET}")
+                    print(f"{Colors.CYAN}/format{Colors.RESET} {Colors.DIM}- toggle markdown formatting{Colors.RESET}")
                     print(f"{Colors.CYAN}/clear{Colors.RESET}  {Colors.DIM}- clear conversation context{Colors.RESET}")
                     print(f"{Colors.CYAN}/help{Colors.RESET}   {Colors.DIM}- show this help{Colors.RESET}")
                     print(f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}")
