@@ -1,3 +1,4 @@
+import os
 from uuid import uuid4
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -14,10 +15,12 @@ agent_sessions = {}
 agent_options = ClaudeCodeOptions(
     system_prompt="You are a friendly assistant - reply to the user in a friendly manner",
     permission_mode='acceptEdits',
-    cwd="./app"
+    cwd="/workspace"
 )
 
 async def run_agent(user_message: str, context_id: str):
+    # Ensure workspace directory exists
+    os.makedirs("/workspace", exist_ok=True)
 
     if context_id not in agent_sessions:
         logger.info(f"Creating new agent session for context_id: {context_id}")

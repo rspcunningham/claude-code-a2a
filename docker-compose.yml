@@ -1,0 +1,13 @@
+services:
+  claude-agent:
+    build: .
+    ports:
+      - "9999:9999"
+    volumes:
+      - claude-workspace:/workspace
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  claude-workspace:
