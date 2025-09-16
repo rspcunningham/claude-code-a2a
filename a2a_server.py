@@ -44,4 +44,4 @@ server = A2AStarletteApplication(
 app = server.build()
 
 if __name__ == '__main__':
-    uvicorn.run("main:app", host='0.0.0.0', port=9999, reload=True)
+    uvicorn.run("a2a_server:app", host='0.0.0.0', port=9999, reload=True)

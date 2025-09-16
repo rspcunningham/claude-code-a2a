@@ -4,20 +4,32 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.utils import new_agent_text_message
 
-from claude_code_sdk import ClaudeCodeOptions, query
+from claude_code_sdk import ClaudeCodeOptions, ClaudeSDKClient
 
-async def run_agent(user_message: str):
-    options = ClaudeCodeOptions(
-        system_prompt="You are an expert Python developer",
-        permission_mode='acceptEdits',
-        cwd="."
-    )
+from loguru import logger
+
+# {context_id: ClaudeSDKClient}
+agent_sessions = {}
+
+agent_options = ClaudeCodeOptions(
+    system_prompt="You are a friendly assistant - reply to the user in a friendly manner",
+    permission_mode='acceptEdits',
+    cwd="./app"
+)
+
+async def run_agent(user_message: str, context_id: str):
+
+    if context_id not in agent_sessions:
+        logger.info(f"Creating new agent session for context_id: {context_id}")
+        agent_sessions[context_id] = ClaudeSDKClient(agent_options)
+        await agent_sessions[context_id].connect()
+    else:
+        logger.info(f"Reusing existing agent session for context_id: {context_id}")
+
+    await agent_sessions[context_id].query(user_message)
 
     messages = []
-    async for message in query(
-        prompt=user_message,
-        options=options
-    ):
+    async for message in agent_sessions[context_id].receive_response():
         messages.append(message)
 
     # Get the final message (ResultMessage) and extract the result content
@@ -43,7 +55,7 @@ class HelloWorldAgentExecutor(AgentExecutor):
 
         user_message = context.message.parts[0].root.text
 
-        result = await run_agent(user_message)
+        result = await run_agent(user_message, context_id)
 
         # Create message with context_id
         message = new_agent_text_message(result)
