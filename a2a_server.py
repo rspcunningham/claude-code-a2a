@@ -1,3 +1,4 @@
+import os
 import uvicorn
 
 from a2a.server.apps import A2AStarletteApplication
@@ -12,6 +13,8 @@ from agent_executor import (
     HelloWorldAgentExecutor
 )
 
+PORT = int(os.environ.get('PORT', '9999'))
+
 skill = AgentSkill(
     id='reply',
     name='Reply',
@@ -23,7 +26,7 @@ skill = AgentSkill(
 public_agent_card = AgentCard(
     name='Hello World Agent',
     description='Just a hello world agent',
-    url='http://localhost:9999/',
+    url=f'http://localhost:{PORT}/',
     version='1.0.0',
     default_input_modes=['text'],
     default_output_modes=['text'],
@@ -44,4 +47,4 @@ server = A2AStarletteApplication(
 app = server.build()
 
 if __name__ == '__main__':
-    uvicorn.run("a2a_server:app", host='0.0.0.0', port=9999, reload=True)
+    uvicorn.run("a2a_server:app", host='0.0.0.0', port=PORT, reload=True)

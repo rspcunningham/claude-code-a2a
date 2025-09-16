@@ -2,7 +2,7 @@ services:
   claude-agent:
     build: .
     ports:
-      - "${PORT:-9999}:9999"
+      - "${PORT:-9999}:${PORT:-9999}"
     volumes:
       - claude-workspace:/workspace
     env_file:
