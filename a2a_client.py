@@ -1,6 +1,8 @@
 import asyncio
 from uuid import uuid4
 
+from devtools import pprint
+
 import httpx
 
 from a2a.client import A2ACardResolver, ClientFactory, ClientConfig
@@ -28,6 +30,7 @@ class A2AREPL:
         self.client = None
         self.httpx_client = None
         self.agent_name = None
+        self.context_id = None
 
     async def initialize(self):
         """Initialize the client by fetching agent card and setting up connection"""
@@ -51,7 +54,7 @@ class A2AREPL:
             print(f"{Colors.RED}Connection failed: {e}{Colors.RESET}")
             raise
 
-    async def send_message(self, text: str, use_streaming: bool = False):
+    async def send_message(self, text: str, use_streaming: bool = False, debug: bool = False):
         """Send a message to the agent"""
         if not self.client:
             raise RuntimeError("Client not initialized. Call initialize() first.")
@@ -61,13 +64,27 @@ class A2AREPL:
             message_id=uuid4().hex,
             role='user', # type: ignore
             parts=[TextPart(text=text)], # type: ignore
+            context_id=self.context_id,
         )
 
         try:
             # The new send_message method returns an async iterator
             async for event in self.client.send_message(message):
+                # Debug: Print the entire event structure (if debug mode is enabled)
+                if debug:
+                    print()
+                    print(f"{Colors.YELLOW}DEBUG - Full event{Colors.RESET}")
+                    pprint(event.__dict__)
+                    print()
+
                 # Handle different event types
                 if isinstance(event, Message):
+                    # Store context_id from server response
+                    if event.context_id and not self.context_id:
+                        self.context_id = event.context_id
+                        if debug:
+                            print(f"{Colors.GREEN}Stored context_id: {self.context_id}{Colors.RESET}")
+
                     # Final message response
                     for part in event.parts:
                         if hasattr(part, 'root') and hasattr(part.root, 'text'):
@@ -98,6 +115,8 @@ class A2AREPL:
         print(f"{Colors.DIM}To get started, type a message or try one of these commands:{Colors.RESET}")
         print()
         print(f"{Colors.CYAN}/stream{Colors.RESET} {Colors.DIM}- toggle streaming mode{Colors.RESET}")
+        print(f"{Colors.CYAN}/debug{Colors.RESET}  {Colors.DIM}- toggle debug mode{Colors.RESET}")
+        print(f"{Colors.CYAN}/clear{Colors.RESET}  {Colors.DIM}- clear conversation context{Colors.RESET}")
         print(f"{Colors.CYAN}/help{Colors.RESET}   {Colors.DIM}- show this help{Colors.RESET}")
         print(f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}")
         print()
@@ -108,10 +127,11 @@ class A2AREPL:
         self.show_welcome()
 
         use_streaming = False
+        debug_mode = False
 
         while True:
             try:
-                prompt = f"{Colors.CYAN}{'[streaming] ' if use_streaming else ''}> {Colors.RESET}"
+                prompt = f"{Colors.CYAN}{'[streaming] ' if use_streaming else ''}{'[debug] ' if debug_mode else ''}> {Colors.RESET}"
                 user_input = input(prompt).strip()
 
                 if not user_input:
@@ -125,13 +145,24 @@ class A2AREPL:
                     status = f"{Colors.GREEN}ON{Colors.RESET}" if use_streaming else f"{Colors.DIM}OFF{Colors.RESET}"
                     print(f"{Colors.DIM}Streaming mode: {status}{Colors.RESET}")
                     continue
+                elif user_input == '/debug':
+                    debug_mode = not debug_mode
+                    status = f"{Colors.GREEN}ON{Colors.RESET}" if debug_mode else f"{Colors.DIM}OFF{Colors.RESET}"
+                    print(f"{Colors.DIM}Debug mode: {status}{Colors.RESET}")
+                    continue
+                elif user_input == '/clear':
+                    self.context_id = None
+                    print(f"{Colors.DIM}Conversation context cleared{Colors.RESET}")
+                    continue
                 elif user_input == '/help':
                     print(f"{Colors.CYAN}/stream{Colors.RESET} {Colors.DIM}- toggle streaming mode{Colors.RESET}")
+                    print(f"{Colors.CYAN}/debug{Colors.RESET}  {Colors.DIM}- toggle debug mode{Colors.RESET}")
+                    print(f"{Colors.CYAN}/clear{Colors.RESET}  {Colors.DIM}- clear conversation context{Colors.RESET}")
                     print(f"{Colors.CYAN}/help{Colors.RESET}   {Colors.DIM}- show this help{Colors.RESET}")
                     print(f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}")
                     continue
 
-                await self.send_message(user_input, use_streaming)
+                await self.send_message(user_input, use_streaming, debug_mode)
                 print()
 
             except KeyboardInterrupt:
