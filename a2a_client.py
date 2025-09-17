@@ -1,9 +1,11 @@
 import os
 import asyncio
+import argparse
 from uuid import uuid4
 from devtools import pprint
 import httpx
 import re
+import traceback
 
 from a2a.client import A2ACardResolver, ClientFactory, ClientConfig
 from a2a.types import (
@@ -13,8 +15,6 @@ from a2a.types import (
 
 from dotenv import load_dotenv
 load_dotenv()
-
-PORT = os.environ.get('PORT', '9999')
 
 # ANSI color codes
 class Colors:
@@ -30,13 +30,14 @@ class Colors:
 
 
 class A2AREPL:
-    def __init__(self, base_url: str = f"http://localhost:{PORT}"):
+    def __init__(self, base_url: str):
         self.base_url = base_url
         self.client = None
         self.httpx_client = None
         self.agent_name = None
         self.context_id = None
         self.format_markdown = True  # Enable markdown formatting by default
+
 
     def format_response(self, text: str) -> str:
         """Format response text with basic markdown styling"""
@@ -152,6 +153,7 @@ class A2AREPL:
 
         except Exception as e:
             print(f"{Colors.RED}Error: {e}{Colors.RESET}")
+            traceback.print_exc()
 
     def show_welcome(self):
         """Display welcome banner and commands"""
@@ -224,6 +226,7 @@ class A2AREPL:
                 break
             except Exception as e:
                 print(f"{Colors.RED}Error: {e}{Colors.RESET}")
+                traceback.print_exc()
 
     async def cleanup(self):
         """Clean up resources"""
@@ -232,7 +235,15 @@ class A2AREPL:
 
 
 async def main() -> None:
-    repl = A2AREPL()
+    parser = argparse.ArgumentParser(description='A2A Client REPL')
+    parser.add_argument('--port', type=int,
+                       default=int(os.environ.get('PORT', '9999')),
+                       help='Port to connect to (default: 9999 or PORT env var)')
+
+    args = parser.parse_args()
+    base_url = f"http://localhost:{args.port}"
+
+    repl = A2AREPL(base_url)
 
     try:
         await repl.run_repl()

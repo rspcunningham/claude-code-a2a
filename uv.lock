@@ -133,6 +133,7 @@ dependencies = [
     { name = "loguru" },
     { name = "prompt-toolkit" },
     { name = "python-dotenv" },
+    { name = "python-on-whales" },
     { name = "rich" },
 ]
 
@@ -144,6 +145,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
+    { name = "python-on-whales", specifier = ">=0.78.0" },
     { name = "rich", specifier = ">=13.0.0" },
 ]
 
@@ -512,6 +514,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f3/87/f44d7c9f274c7ee665a29b885ec97089ec5dc034c7f3fafa03da9e39a09e/python_multipart-0.0.20.tar.gz", hash = "sha256:8dd0cab45b8e23064ae09147625994d090fa46f5b0d1e13af944c331a7fa9d13", size = 37158 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/45/58/38b5afbc1a800eeea951b9285d3912613f2603bdf897a4ab0f4bd7f405fc/python_multipart-0.0.20-py3-none-any.whl", hash = "sha256:8a62d3a8335e06589fe01f2a3e178cdcc632f3fbe0d492ad9ee0ec35aab1f104", size = 24546 },
+]
+
+[[package]]
+name = "python-on-whales"
+version = "0.78.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d2/ae/baa80662fa98bfdffa31ad68985ef059d84c6dd5287176bc3bb5fb6df9ae/python_on_whales-0.78.0.tar.gz", hash = "sha256:0deab53cdbdd546f8a220c9205d73194ab187478497377a1d7b91de44140cc08", size = 113911 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/ad/20d6aa4dccd0ba415cd0548da4586a6d0e2f3efedc01d33fad6c8bb9c42b/python_on_whales-0.78.0-py3-none-any.whl", hash = "sha256:c315c35a19f72543cf37f991c006c2056861031407ee199a17777e214eed846d", size = 118087 },
 ]
 
 [[package]]

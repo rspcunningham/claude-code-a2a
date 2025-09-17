@@ -2,7 +2,10 @@ services:
   claude-agent:
     build: .
     ports:
-      - "${PORT:-9999}:${PORT:-9999}"
+      # publish a random host port -> container 9999
+      - target: 9999
+        published: 0
+        protocol: tcp
     volumes:
       - claude-workspace:/workspace
     env_file:

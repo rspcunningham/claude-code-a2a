@@ -28,7 +28,7 @@ COPY . .
 # Create workspace directory
 RUN mkdir -p /workspace
 
-# Expose port
+# Expose
 EXPOSE 9999
 
 # Run the server
