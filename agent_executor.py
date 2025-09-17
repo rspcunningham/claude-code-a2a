@@ -9,7 +9,8 @@ from claude_code_sdk import ClaudeCodeOptions, ClaudeSDKClient
 
 from loguru import logger
 
-# {context_id: ClaudeSDKClient}
+# context_id --> ClaudeSDKClient
+# note: memory leak, will pile up if not collected
 agent_sessions = {}
 
 agent_options = ClaudeCodeOptions(
@@ -39,8 +40,7 @@ async def run_agent(user_message: str, context_id: str):
     return messages[-1].result
 
 
-class HelloWorldAgentExecutor(AgentExecutor):
-    """Test AgentProxy Implementation."""
+class AgentExecutorImplementation(AgentExecutor):
 
     async def execute(
         self,

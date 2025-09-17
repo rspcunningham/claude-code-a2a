@@ -15,7 +15,7 @@ from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
     PREV_AGENT_CARD_WELL_KNOWN_PATH,
 )
-from agent_executor import HelloWorldAgentExecutor
+from agent_executor import AgentExecutorImplementation
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -26,13 +26,12 @@ skill = AgentSkill(
     id='reply',
     name='Reply',
     description='responds to your message in a thoughtful manner',
-    tags=['reply'],
-    examples=["That's a great question!"],
+    tags=[],
 )
 
 base_agent_card = AgentCard(
-    name='Hello World Agent',
-    description='Just a hello world agent',
+    name='Agent',
+    description='Just an agent',
     url=f'http://localhost:{INTERNAL_PORT}/',
     version='1.0.0',
     default_input_modes=['text'],
@@ -42,7 +41,7 @@ base_agent_card = AgentCard(
 )
 
 request_handler = DefaultRequestHandler(
-    agent_executor=HelloWorldAgentExecutor(),
+    agent_executor=AgentExecutorImplementation(),
     task_store=InMemoryTaskStore(),
 )
 
