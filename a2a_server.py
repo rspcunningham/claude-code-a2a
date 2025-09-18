@@ -1,4 +1,3 @@
-import os
 from urllib.parse import urlunsplit
 
 import uvicorn
@@ -15,7 +14,8 @@ from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
     PREV_AGENT_CARD_WELL_KNOWN_PATH,
 )
-from agent_executor import ClaudeAgentExecutor
+
+from claude_agent import ClaudeAgentExecutor
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
