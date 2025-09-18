@@ -15,7 +15,7 @@ from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
     PREV_AGENT_CARD_WELL_KNOWN_PATH,
 )
-from agent_executor import AgentExecutorImplementation
+from agent_executor import ClaudeAgentExecutor
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -41,7 +41,7 @@ base_agent_card = AgentCard(
 )
 
 request_handler = DefaultRequestHandler(
-    agent_executor=AgentExecutorImplementation(),
+    agent_executor=ClaudeAgentExecutor(),
     task_store=InMemoryTaskStore(),
 )
 

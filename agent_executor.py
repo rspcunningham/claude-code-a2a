@@ -40,7 +40,7 @@ async def run_agent(user_message: str, context_id: str):
     return messages[-1].result
 
 
-class AgentExecutorImplementation(AgentExecutor):
+class ClaudeAgentExecutor(AgentExecutor):
 
     async def execute(
         self,
