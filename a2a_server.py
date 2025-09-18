@@ -1,6 +1,12 @@
+import asyncio
+import logging
 import os
+import socket
+from datetime import datetime, timezone
+from functools import lru_cache
 from urllib.parse import urlunsplit
 
+import httpx
 import uvicorn
 
 from a2a.server.apps import A2AStarletteApplication
@@ -20,7 +26,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from loguru import logger
+
 INTERNAL_PORT = 9999
+
+HEARTBEAT_URL = os.environ.get('HEARTBEAT_URL', 'http://localhost:8080/heartbeat')
+HEARTBEAT_INTERVAL_SECONDS = 60.0
+_heartbeat_task: asyncio.Task[None] | None = None
 
 skill = AgentSkill(
     id='reply',
@@ -62,6 +74,69 @@ app.router.routes.extend([
     Route('/', root_handler, methods=['GET']),
     Route('/', root_handler, methods=['POST']),
 ])
+
+
+@lru_cache(maxsize=1)
+def _resolve_self_base_url() -> str:
+    """Return a URL other services can use to reach this container."""
+    explicit_url = os.environ.get('HEARTBEAT_SELF_URL')
+    if explicit_url:
+        return explicit_url.rstrip('/') + '/'
+
+    host = os.environ.get('HEARTBEAT_SELF_HOST')
+    if not host:
+        # Fall back to container hostname which Docker DNS resolves on the network.
+        host = os.environ.get('HOSTNAME') or socket.gethostname()
+
+    port = os.environ.get('HEARTBEAT_SELF_PORT', str(INTERNAL_PORT))
+    return f'http://{host}:{port}/'
+
+
+async def _heartbeat_loop(url: str, interval_seconds: float) -> None:
+    """Background heartbeat pings the configured URL until cancelled."""
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                payload = {
+                    'agent': base_agent_card.name,
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'url': _resolve_self_base_url(),
+                    'container_host': os.environ.get('HOSTNAME') or socket.gethostname(),
+                }
+                resp = await client.post(url, json=payload, timeout=10.0)
+                logger.info(
+                    "Heartbeat POST to %s succeeded with status %s", url, resp.status_code
+                )
+            except Exception as e:
+                logger.warning(f"Heartbeat POST to {url} failed: {e}")
+            await asyncio.sleep(interval_seconds)
+
+
+@app.on_event('startup')
+async def _start_heartbeat() -> None:
+    global _heartbeat_task
+    if not HEARTBEAT_URL:
+        return
+
+    logger.info(f"Starting heartbeat to {HEARTBEAT_URL} every {HEARTBEAT_INTERVAL_SECONDS} seconds")
+    _heartbeat_task = asyncio.create_task(
+        _heartbeat_loop(HEARTBEAT_URL, HEARTBEAT_INTERVAL_SECONDS)
+    )
+
+
+@app.on_event('shutdown')
+async def _stop_heartbeat() -> None:
+    global _heartbeat_task
+    if not _heartbeat_task:
+        return
+
+    _heartbeat_task.cancel()
+    try:
+        await _heartbeat_task
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _heartbeat_task = None
 
 
 def _select_first_header_value(value: str | None) -> str | None:

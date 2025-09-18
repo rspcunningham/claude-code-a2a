@@ -1,6 +1,10 @@
 services:
   claude-agent:
     build: .
+    depends_on:
+      - heartbeat-logger
+    environment:
+      HEARTBEAT_URL: http://heartbeat-logger:8080/heartbeat
     ports:
       # publish a random host port -> container 9999
       - target: 9999
@@ -10,6 +14,22 @@ services:
       - claude-workspace:/workspace
     env_file:
       - .env
+    restart: unless-stopped
+
+  heartbeat-logger:
+    build: .
+    command:
+      - uv
+      - run
+      - python
+      - heartbeat_receiver.py
+    environment:
+      HEARTBEAT_PORT: 8080
+    ports:
+      # expose heartbeat logger for optional host inspection
+      - target: 8080
+        published: 0
+        protocol: tcp
     restart: unless-stopped
 
 volumes:
