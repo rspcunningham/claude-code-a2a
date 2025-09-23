@@ -1,3 +1,6 @@
+# NOTE: This docker-compose.yml is now primarily used for building images.
+# Use launch.py for launching agents with workspace management.
+
 services:
   claude-agent:
     build: .
