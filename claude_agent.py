@@ -8,6 +8,7 @@ from a2a.utils import new_agent_text_message
 from claude_code_sdk import ClaudeCodeOptions, ClaudeSDKClient
 
 from loguru import logger
+from typing import override
 
 # context_id --> ClaudeSDKClient
 # note: memory leak, will pile up if not collected
@@ -15,9 +16,10 @@ agent_sessions = {}
 
 agent_options = ClaudeCodeOptions(
     system_prompt="You are a friendly assistant - reply to the user in a friendly manner",
-    permission_mode='acceptEdits',
-    cwd="/workspace"
+    permission_mode="acceptEdits",
+    cwd="/workspace",
 )
+
 
 async def run_agent(user_message: str, context_id: str):
     # Ensure workspace directory exists
@@ -41,7 +43,7 @@ async def run_agent(user_message: str, context_id: str):
 
 
 class ClaudeAgentExecutor(AgentExecutor):
-
+    @override
     async def execute(
         self,
         context: RequestContext,
@@ -66,7 +68,6 @@ class ClaudeAgentExecutor(AgentExecutor):
 
         await event_queue.enqueue_event(message)
 
-    async def cancel(
-        self, context: RequestContext, event_queue: EventQueue
-    ) -> None:
-        raise Exception('cancel not supported')
+    @override
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        raise Exception("cancel not supported")

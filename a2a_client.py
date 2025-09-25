@@ -14,30 +14,31 @@ from a2a.types import (
 )
 
 from dotenv import load_dotenv
+
 load_dotenv()
+
 
 # ANSI color codes
 class Colors:
-    CYAN = '\033[96m'
-    BLUE = '\033[94m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    DIM = '\033[2m'
-    BOLD = '\033[1m'
-    ITALIC = '\033[3m'
-    RESET = '\033[0m'
+    CYAN: str = "\033[96m"
+    BLUE: str = "\033[94m"
+    GREEN: str = "\033[92m"
+    YELLOW: str = "\033[93m"
+    RED: str = "\033[91m"
+    DIM: str = "\033[2m"
+    BOLD: str = "\033[1m"
+    ITALIC: str = "\033[3m"
+    RESET: str = "\033[0m"
 
 
 class A2AREPL:
     def __init__(self, base_url: str):
-        self.base_url = base_url
-        self.client = None
-        self.httpx_client = None
-        self.agent_name = None
-        self.context_id = None
-        self.format_markdown = True  # Enable markdown formatting by default
-
+        self.base_url: str = base_url
+        self.client: ClientFactory = None
+        self.httpx_client: httpx.AsyncClient = None
+        self.agent_name: str = None
+        self.context_id: str = None
+        self.format_markdown: bool = True  # Enable markdown formatting by default
 
     def format_response(self, text: str) -> str:
         """Format response text with basic markdown styling"""
@@ -45,22 +46,34 @@ class A2AREPL:
             return text
 
         # Bold text (**text** -> colored text)
-        text = re.sub(r'\*\*(.*?)\*\*', f'{Colors.BOLD}\\1{Colors.RESET}', text)
+        text = re.sub(r"\*\*(.*?)\*\*", f"{Colors.BOLD}\\1{Colors.RESET}", text)
 
         # Italic text (*text* -> italic text)
-        text = re.sub(r'\*([^*]+)\*', f'{Colors.ITALIC}\\1{Colors.RESET}', text)
+        text = re.sub(r"\*([^*]+)\*", f"{Colors.ITALIC}\\1{Colors.RESET}", text)
 
         # Code blocks (```code``` -> colored text)
-        text = re.sub(r'```(.*?)```', f'{Colors.CYAN}\\1{Colors.RESET}', text, flags=re.DOTALL)
+        text = re.sub(
+            r"```(.*?)```", f"{Colors.CYAN}\\1{Colors.RESET}", text, flags=re.DOTALL
+        )
 
         # Inline code (`code` -> colored text)
-        text = re.sub(r'`([^`]+)`', f'{Colors.CYAN}\\1{Colors.RESET}', text)
+        text = re.sub(r"`([^`]+)`", f"{Colors.CYAN}\\1{Colors.RESET}", text)
 
         # Headers (## Header -> colored text)
-        text = re.sub(r'^(#{1,6})\s*(.*?)$', f'{Colors.BOLD}\\2{Colors.RESET}', text, flags=re.MULTILINE)
+        text = re.sub(
+            r"^(#{1,6})\s*(.*?)$",
+            f"{Colors.BOLD}\\2{Colors.RESET}",
+            text,
+            flags=re.MULTILINE,
+        )
 
         # Bullet points (- item -> colored bullet)
-        text = re.sub(r'^-\s*(.*?)$', f'{Colors.GREEN}•{Colors.RESET} \\1', text, flags=re.MULTILINE)
+        text = re.sub(
+            r"^-\s*(.*?)$",
+            f"{Colors.GREEN}•{Colors.RESET} \\1",
+            text,
+            flags=re.MULTILINE,
+        )
 
         return text
 
@@ -99,12 +112,14 @@ class A2AREPL:
         if event.context_id and not self.context_id:
             self.context_id = event.context_id
             if debug:
-                print(f"{Colors.GREEN}Stored context_id: {self.context_id}{Colors.RESET}")
+                print(
+                    f"{Colors.GREEN}Stored context_id: {self.context_id}{Colors.RESET}"
+                )
 
     def _handle_message_parts(self, event, use_streaming: bool):
         """Handle message parts in the event"""
         for part in event.parts:
-            if hasattr(part, 'root') and hasattr(part.root, 'text'):
+            if hasattr(part, "root") and hasattr(part.root, "text"):
                 if use_streaming:
                     print()  # Add newline after streaming
                 formatted_text = self.format_response(part.root.text)
@@ -112,21 +127,23 @@ class A2AREPL:
 
     def _handle_artifact(self, artifact, use_streaming: bool):
         """Handle a single artifact"""
-        if hasattr(artifact, 'data') and hasattr(artifact.data, 'text'):
+        if hasattr(artifact, "data") and hasattr(artifact.data, "text"):
             if use_streaming:
-                print(artifact.data.text, end='', flush=True)
+                print(artifact.data.text, end="", flush=True)
             else:
                 formatted_text = self.format_response(artifact.data.text)
                 print(formatted_text)
 
     def _handle_tuple_event(self, event, use_streaming: bool):
         """Handle tuple event (task, update_event)"""
-        task, update_event = event
-        if update_event and hasattr(update_event, 'artifacts'):
+        _, update_event = event
+        if update_event and hasattr(update_event, "artifacts"):
             for artifact in update_event.artifacts:
                 self._handle_artifact(artifact, use_streaming)
 
-    async def send_message(self, text: str, use_streaming: bool = False, debug: bool = False):
+    async def send_message(
+        self, text: str, use_streaming: bool = False, debug: bool = False
+    ):
         """Send a message to the agent"""
         if not self.client:
             raise RuntimeError("Client not initialized. Call initialize() first.")
@@ -134,8 +151,8 @@ class A2AREPL:
         # Create message with new API
         message = Message(
             message_id=uuid4().hex,
-            role='user', # type: ignore
-            parts=[TextPart(text=text)], # type: ignore
+            role="user",  # type: ignore
+            parts=[TextPart(text=text)],  # type: ignore
             context_id=self.context_id,
         )
 
@@ -161,14 +178,28 @@ class A2AREPL:
         print(f"\n{Colors.BOLD}a2a{agent_display}{Colors.RESET}")
         print(f"{Colors.DIM}> You are connected to an A2A agent{Colors.RESET}")
         print()
-        print(f"{Colors.DIM}To get started, type a message or try one of these commands:{Colors.RESET}")
+        print(
+            f"{Colors.DIM}To get started, type a message or try one of these commands:{Colors.RESET}"
+        )
         print()
-        print(f"{Colors.CYAN}/stream{Colors.RESET} {Colors.DIM}- toggle streaming mode{Colors.RESET}")
-        print(f"{Colors.CYAN}/debug{Colors.RESET}  {Colors.DIM}- toggle debug mode{Colors.RESET}")
-        print(f"{Colors.CYAN}/format{Colors.RESET} {Colors.DIM}- toggle markdown formatting{Colors.RESET}")
-        print(f"{Colors.CYAN}/clear{Colors.RESET}  {Colors.DIM}- clear conversation context{Colors.RESET}")
-        print(f"{Colors.CYAN}/help{Colors.RESET}   {Colors.DIM}- show this help{Colors.RESET}")
-        print(f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}")
+        print(
+            f"{Colors.CYAN}/stream{Colors.RESET} {Colors.DIM}- toggle streaming mode{Colors.RESET}"
+        )
+        print(
+            f"{Colors.CYAN}/debug{Colors.RESET}  {Colors.DIM}- toggle debug mode{Colors.RESET}"
+        )
+        print(
+            f"{Colors.CYAN}/format{Colors.RESET} {Colors.DIM}- toggle markdown formatting{Colors.RESET}"
+        )
+        print(
+            f"{Colors.CYAN}/clear{Colors.RESET}  {Colors.DIM}- clear conversation context{Colors.RESET}"
+        )
+        print(
+            f"{Colors.CYAN}/help{Colors.RESET}   {Colors.DIM}- show this help{Colors.RESET}"
+        )
+        print(
+            f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}"
+        )
         print()
 
     async def run_repl(self):
@@ -187,35 +218,59 @@ class A2AREPL:
                 if not user_input:
                     continue
 
-                if user_input in ['/quit', '/exit']:
+                if user_input in ["/quit", "/exit"]:
                     print(f"{Colors.DIM}Goodbye!{Colors.RESET}")
                     break
-                elif user_input == '/stream':
+                elif user_input == "/stream":
                     use_streaming = not use_streaming
-                    status = f"{Colors.GREEN}ON{Colors.RESET}" if use_streaming else f"{Colors.DIM}OFF{Colors.RESET}"
+                    status = (
+                        f"{Colors.GREEN}ON{Colors.RESET}"
+                        if use_streaming
+                        else f"{Colors.DIM}OFF{Colors.RESET}"
+                    )
                     print(f"{Colors.DIM}Streaming mode: {status}{Colors.RESET}")
                     continue
-                elif user_input == '/debug':
+                elif user_input == "/debug":
                     debug_mode = not debug_mode
-                    status = f"{Colors.GREEN}ON{Colors.RESET}" if debug_mode else f"{Colors.DIM}OFF{Colors.RESET}"
+                    status = (
+                        f"{Colors.GREEN}ON{Colors.RESET}"
+                        if debug_mode
+                        else f"{Colors.DIM}OFF{Colors.RESET}"
+                    )
                     print(f"{Colors.DIM}Debug mode: {status}{Colors.RESET}")
                     continue
-                elif user_input == '/format':
+                elif user_input == "/format":
                     self.format_markdown = not self.format_markdown
-                    status = f"{Colors.GREEN}ON{Colors.RESET}" if self.format_markdown else f"{Colors.DIM}OFF{Colors.RESET}"
+                    status = (
+                        f"{Colors.GREEN}ON{Colors.RESET}"
+                        if self.format_markdown
+                        else f"{Colors.DIM}OFF{Colors.RESET}"
+                    )
                     print(f"{Colors.DIM}Markdown formatting: {status}{Colors.RESET}")
                     continue
-                elif user_input == '/clear':
+                elif user_input == "/clear":
                     self.context_id = None
                     print(f"{Colors.DIM}Conversation context cleared{Colors.RESET}")
                     continue
-                elif user_input == '/help':
-                    print(f"{Colors.CYAN}/stream{Colors.RESET} {Colors.DIM}- toggle streaming mode{Colors.RESET}")
-                    print(f"{Colors.CYAN}/debug{Colors.RESET}  {Colors.DIM}- toggle debug mode{Colors.RESET}")
-                    print(f"{Colors.CYAN}/format{Colors.RESET} {Colors.DIM}- toggle markdown formatting{Colors.RESET}")
-                    print(f"{Colors.CYAN}/clear{Colors.RESET}  {Colors.DIM}- clear conversation context{Colors.RESET}")
-                    print(f"{Colors.CYAN}/help{Colors.RESET}   {Colors.DIM}- show this help{Colors.RESET}")
-                    print(f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}")
+                elif user_input == "/help":
+                    print(
+                        f"{Colors.CYAN}/stream{Colors.RESET} {Colors.DIM}- toggle streaming mode{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.CYAN}/debug{Colors.RESET}  {Colors.DIM}- toggle debug mode{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.CYAN}/format{Colors.RESET} {Colors.DIM}- toggle markdown formatting{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.CYAN}/clear{Colors.RESET}  {Colors.DIM}- clear conversation context{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.CYAN}/help{Colors.RESET}   {Colors.DIM}- show this help{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}"
+                    )
                     continue
 
                 await self.send_message(user_input, use_streaming, debug_mode)
@@ -235,10 +290,13 @@ class A2AREPL:
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description='A2A Client REPL')
-    parser.add_argument('--port', type=int,
-                       default=int(os.environ.get('PORT', '9999')),
-                       help='Port to connect to (default: 9999 or PORT env var)')
+    parser = argparse.ArgumentParser(description="A2A Client REPL")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PORT", "9999")),
+        help="Port to connect to (default: 9999 or PORT env var)",
+    )
 
     args = parser.parse_args()
     base_url = f"http://localhost:{args.port}"
@@ -251,5 +309,5 @@ async def main() -> None:
         await repl.cleanup()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())
