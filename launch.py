@@ -200,7 +200,7 @@ def print_workspaces(workspaces):
     )
 
 
-def launch_container(workspace_id, rebuild=False):
+def launch_container(workspace_id, rebuild=False, template=None):
     """Launch a new container with the specified workspace"""
     workspace_path = get_workspace_path(workspace_id)
 
@@ -264,9 +264,18 @@ def launch_container(workspace_id, rebuild=False):
         os.environ["WORKSPACE_PATH"] = "/tmp"  # Set dummy value for build
         docker.compose.up("heartbeat-logger", detach=True)
 
-        # Get the image name from docker-compose
+        # Get the image name - use template if specified
         project_name = "claude-code-a2a"  # Based on your directory name
-        image_name = f"{project_name}-claude-agent"
+        if template:
+            # Validate template exists
+            available_templates = [t["name"] for t in get_available_templates()]
+            if template not in available_templates:
+                print(f"Error: Template '{template}' not found.")
+                print(f"Available templates: {', '.join(available_templates)}")
+                return False
+            image_name = f"{project_name}-claude-agent:template-{template}"
+        else:
+            image_name = f"{project_name}-claude-agent:template-empty"
 
         # Check if image exists, build only if needed or forced
         image_exists = False
@@ -309,6 +318,10 @@ def launch_container(workspace_id, rebuild=False):
             envs=env_vars,
             restart="unless-stopped",
             networks=["claude-code-a2a_default"],  # Connect to compose network
+            labels={
+                "com.docker.compose.project": "claude-code-a2a",
+                "com.docker.compose.service": "claude-agent",
+            },
         )
 
         # Give it a moment to start
@@ -458,6 +471,100 @@ def cleanup_unused_workspaces():
     )
 
 
+def get_available_templates():
+    """Get list of available templates from filesystem"""
+    templates_dir = Path.cwd() / "templates"
+    if not templates_dir.exists():
+        return []
+
+    templates = []
+    for item in templates_dir.iterdir():
+        if item.is_dir():
+            # Check if it has a README.md to get description
+            readme_path = item / "README.md"
+            description = "No description available"
+            if readme_path.exists():
+                try:
+                    content = readme_path.read_text()
+                    # Get first line after the title
+                    lines = content.split("\n")
+                    for line in lines[1:]:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            description = line
+                            break
+                except:
+                    pass
+
+            templates.append(
+                {"name": item.name, "description": description, "path": str(item)}
+            )
+
+    # Add the built-in empty template
+    templates.append(
+        {
+            "name": "empty",
+            "description": "Clean workspace with no pre-installed packages",
+            "path": "built-in",
+        }
+    )
+
+    return sorted(templates, key=lambda x: x["name"])
+
+
+def list_templates():
+    """List available workspace templates"""
+    templates = get_available_templates()
+
+    if not templates:
+        print("No templates found.")
+        return
+
+    print("\nAvailable Workspace Templates:")
+    print(
+        "┌────────────────┬──────────────────────────────────────────────────────────┐"
+    )
+    print(
+        "│ Template       │ Description                                              │"
+    )
+    print(
+        "├────────────────┼──────────────────────────────────────────────────────────┤"
+    )
+
+    for template in templates:
+        name = template["name"][:14]
+        desc = template["description"][:56]
+        print(f"│ {name:<14} │ {desc:<56} │")
+
+    print(
+        "└────────────────┴──────────────────────────────────────────────────────────┘"
+    )
+
+
+def build_templates():
+    """Build all template Docker images"""
+    templates = get_available_templates()
+
+    print("Building template images...")
+
+    for template in templates:
+        template_name = template["name"]
+        print(f"\nBuilding template: {template_name}")
+
+        try:
+            # Build the specific template stage
+            docker.build(
+                ".",
+                tags=[f"claude-code-a2a-claude-agent:template-{template_name}"],
+                target=f"template-{template_name}",
+            )
+            print(f"✓ Built template: {template_name}")
+        except Exception as e:
+            print(f"✗ Failed to build template {template_name}: {e}")
+
+    print(f"\n✓ Template build complete!")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Launch and manage claude-agent instances",
@@ -465,6 +572,7 @@ def main():
         epilog="""
 Examples:
   ./launch.py --fresh                    Launch new container with fresh workspace
+  ./launch.py --fresh --template python-ml   Launch with Python ML template
   ./launch.py --fresh --rebuild          Launch with fresh workspace and rebuild image
   ./launch.py --workspace ws_123_abc     Launch container with existing workspace
   ./launch.py --status                   Show running containers only
@@ -472,10 +580,15 @@ Examples:
   ./launch.py --stop ws_123_abc          Stop container (keeps container and workspace)
   ./launch.py --cleanup                  Remove stopped containers and unused workspaces
 
+Template Management:
+  ./launch.py --list-templates           Show available workspace templates
+  ./launch.py --build-templates          Build all template Docker images
+
 Container Lifecycle:
   - Fresh launch creates new workspace + container
   - Stop only stops the container (can restart later)
   - Cleanup removes stopped containers + orphaned workspace dirs
+  - Templates provide pre-configured development environments
         """,
     )
 
@@ -505,11 +618,26 @@ Container Lifecycle:
         action="store_true",
         help="Remove stopped containers and unused workspace directories",
     )
+    group.add_argument(
+        "--list-templates",
+        action="store_true",
+        help="List available workspace templates",
+    )
+    group.add_argument(
+        "--build-templates",
+        action="store_true",
+        help="Build all template Docker images",
+    )
 
     parser.add_argument(
         "--rebuild",
         action="store_true",
         help="Force rebuild of Docker image before launching",
+    )
+    parser.add_argument(
+        "--template",
+        type=str,
+        help="Use a workspace template (empty, python-ml, nextjs, data-science)",
     )
 
     args = parser.parse_args()
@@ -534,9 +662,17 @@ Container Lifecycle:
     elif args.cleanup:
         cleanup_unused_workspaces()
 
+    elif args.list_templates:
+        list_templates()
+
+    elif args.build_templates:
+        build_templates()
+
     elif args.fresh:
         workspace_id = generate_workspace_id()
-        success = launch_container(workspace_id, rebuild=args.rebuild)
+        success = launch_container(
+            workspace_id, rebuild=args.rebuild, template=args.template
+        )
 
         if success:
             print("\n" + "=" * 50)
