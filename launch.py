@@ -6,6 +6,11 @@ import secrets
 from pathlib import Path
 from python_on_whales import docker
 
+# Configuration constants
+PROJECT_NAME = "fleet-of-agents"
+NETWORK_NAME = "fleet-of-agents_agent-network"
+AGENT_NAME = "claude-agent"
+
 
 def generate_workspace_id():
     """Generate a unique workspace ID"""
@@ -21,7 +26,7 @@ def get_workspace_path(workspace_id):
 def get_running_agents():
     """Get list of running claude agent containers"""
     try:
-        containers = docker.container.list(filters={"name": "claude-agent"})
+        containers = docker.container.list(filters={"name": AGENT_NAME})
         agents = []
 
         for container in containers:
@@ -29,8 +34,8 @@ def get_running_agents():
             workspace_id = "unknown"
 
             # Check for new naming scheme: claude-agent-ws_123_abc
-            if container.name.startswith("claude-agent-ws_"):
-                workspace_id = container.name.replace("claude-agent-", "")
+            if container.name.startswith(f"{AGENT_NAME}-ws_"):
+                workspace_id = container.name.replace(f"{AGENT_NAME}-", "")
             # Check for old docker-compose naming
             elif container.name.startswith("claude-code-a2a-claude-agent"):
                 # Try to extract from volume mounts
@@ -72,7 +77,7 @@ def get_running_agents():
 def get_all_agents():
     """Get list of all claude agent containers (running and stopped)"""
     try:
-        containers = docker.container.list(all=True, filters={"name": "claude-agent"})
+        containers = docker.container.list(all=True, filters={"name": AGENT_NAME})
         agents = []
 
         for container in containers:
@@ -80,8 +85,8 @@ def get_all_agents():
             workspace_id = "unknown"
 
             # Check for new naming scheme: claude-agent-ws_123_abc
-            if container.name.startswith("claude-agent-ws_"):
-                workspace_id = container.name.replace("claude-agent-", "")
+            if container.name.startswith(f"{AGENT_NAME}-ws_"):
+                workspace_id = container.name.replace(f"{AGENT_NAME}-", "")
             # Check for old docker-compose naming
             elif container.name.startswith("claude-code-a2a-claude-agent"):
                 # Try to extract from volume mounts
@@ -207,7 +212,7 @@ def launch_container(workspace_id, rebuild=False, template=None):
     # Create workspace directory if it doesn't exist
     workspace_path.mkdir(parents=True, exist_ok=True)
 
-    container_name = f"claude-agent-{workspace_id}"
+    container_name = f"{AGENT_NAME}-{workspace_id}"
 
     # Check if container already exists
     existing_container = None
@@ -265,7 +270,6 @@ def launch_container(workspace_id, rebuild=False, template=None):
         docker.compose.up("heartbeat-logger", detach=True)
 
         # Get the image name - use template if specified
-        project_name = "claude-code-a2a"  # Based on your directory name
         if template:
             # Validate template exists
             available_templates = [t["name"] for t in get_available_templates()]
@@ -273,9 +277,9 @@ def launch_container(workspace_id, rebuild=False, template=None):
                 print(f"Error: Template '{template}' not found.")
                 print(f"Available templates: {', '.join(available_templates)}")
                 return False
-            image_name = f"{project_name}-claude-agent:template-{template}"
+            image_name = f"{PROJECT_NAME}-{AGENT_NAME}:template-{template}"
         else:
-            image_name = f"{project_name}-claude-agent:template-empty"
+            image_name = f"{PROJECT_NAME}-{AGENT_NAME}:template-empty"
 
         # Check if image exists, build only if needed or forced
         image_exists = False
@@ -290,7 +294,7 @@ def launch_container(workspace_id, rebuild=False, template=None):
                 print("Rebuilding claude-agent image...")
             else:
                 print("Image not found, building claude-agent image...")
-            docker.build(".", tags=[image_name])
+            docker.build(".", tags=[image_name], load=True)
         else:
             print(f"Using existing image: {image_name}")
 
@@ -317,10 +321,10 @@ def launch_container(workspace_id, rebuild=False, template=None):
             ],  # Random host port mapping (0 means any available port)
             envs=env_vars,
             restart="unless-stopped",
-            networks=["claude-code-a2a_default"],  # Connect to compose network
+            networks=[NETWORK_NAME],  # Connect to compose network
             labels={
-                "com.docker.compose.project": "claude-code-a2a",
-                "com.docker.compose.service": "claude-agent",
+                "com.docker.compose.project": PROJECT_NAME,
+                "com.docker.compose.service": AGENT_NAME,
             },
         )
 
@@ -354,7 +358,7 @@ def launch_container(workspace_id, rebuild=False, template=None):
 def stop_container(workspace_id):
     """Stop container associated with workspace"""
     # Try direct container name first (new scheme)
-    container_name = f"claude-agent-{workspace_id}"
+    container_name = f"{AGENT_NAME}-{workspace_id}"
     try:
         container = docker.container.inspect(container_name)
         if container.state.running:
@@ -555,8 +559,9 @@ def build_templates():
             # Build the specific template stage
             docker.build(
                 ".",
-                tags=[f"claude-code-a2a-claude-agent:template-{template_name}"],
+                tags=[f"{PROJECT_NAME}-{AGENT_NAME}:template-{template_name}"],
                 target=f"template-{template_name}",
+                load=True,
             )
             print(f"✓ Built template: {template_name}")
         except Exception as e:
