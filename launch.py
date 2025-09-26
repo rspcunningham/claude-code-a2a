@@ -3,7 +3,6 @@ import sys
 import os
 import time
 import secrets
-from pathlib import Path
 from dataclasses import dataclass
 from python_on_whales import docker
 
@@ -11,6 +10,8 @@ from python_on_whales import docker
 PROJECT_NAME = "fleet-of-agents"
 NETWORK_NAME = "fleet-of-agents_agent-network"
 AGENT_NAME = "claude-agent"
+IMAGE_NAME = f"{PROJECT_NAME}-{AGENT_NAME}"
+# IMAGE_NAME = f"{PROJECT_NAME}-{AGENT_NAME}:template-empty"  # Example for template-based image
 
 
 @dataclass
@@ -174,7 +175,7 @@ def print_volumes(volumes: list[Volume], title: str = "Available Workspace Volum
     print_table(headers, rows, title)
 
 
-def launch_container(workspace_id, rebuild=False, template=None):
+def launch_container(workspace_id, rebuild=False):
     """Launch a new container with the specified workspace"""
     volume_name = f"{PROJECT_NAME}-{workspace_id}"
     container_name = f"{AGENT_NAME}-{workspace_id}"
@@ -236,17 +237,8 @@ def launch_container(workspace_id, rebuild=False, template=None):
         os.environ["WORKSPACE_PATH"] = "/tmp"  # Set dummy value for build
         docker.compose.up("heartbeat-logger", detach=True)
 
-        # Get the image name - use template if specified
-        if template:
-            # Validate template exists
-            available_templates = [t["name"] for t in get_available_templates()]
-            if template not in available_templates:
-                print(f"Error: Template '{template}' not found.")
-                print(f"Available templates: {', '.join(available_templates)}")
-                return False
-            image_name = f"{PROJECT_NAME}-{AGENT_NAME}:template-{template}"
-        else:
-            image_name = f"{PROJECT_NAME}-{AGENT_NAME}:template-empty"
+        # Use the base image
+        image_name = IMAGE_NAME
 
         # Check if image exists, build only if needed or forced
         image_exists = False
@@ -493,108 +485,26 @@ def cleanup_unused_workspaces():
     )
 
 
-def get_available_templates():
-    """Get list of available templates from filesystem"""
-    templates_dir = Path.cwd() / "templates"
-    if not templates_dir.exists():
-        return []
-
-    templates = []
-    for item in templates_dir.iterdir():
-        if item.is_dir():
-            # Check if it has a README.md to get description
-            readme_path = item / "README.md"
-            description = "No description available"
-            if readme_path.exists():
-                try:
-                    content = readme_path.read_text()
-                    # Get first line after the title
-                    lines = content.split("\n")
-                    for line in lines[1:]:
-                        line = line.strip()
-                        if line and not line.startswith("#"):
-                            description = line
-                            break
-                except Exception:
-                    pass
-
-            templates.append(
-                {"name": item.name, "description": description, "path": str(item)}
-            )
-
-    # Add the built-in empty template
-    templates.append(
-        {
-            "name": "empty",
-            "description": "Clean workspace with no pre-installed packages",
-            "path": "built-in",
-        }
-    )
-
-    return sorted(templates, key=lambda x: x["name"])
-
-
-def list_templates():
-    """list available workspace templates"""
-    templates = get_available_templates()
-    headers = ["Template", "Description"]
-    rows = [
-        [template["name"][:14], template["description"][:56]] for template in templates
-    ]
-    print_table(headers, rows, "Available Workspace Templates")
-
-
-def build_templates():
-    """Build all template Docker images"""
-    templates = get_available_templates()
-
-    print("Building template images...")
-
-    for template in templates:
-        template_name = template["name"]
-        print(f"\nBuilding template: {template_name}")
-
-        try:
-            # Build the specific template stage
-            docker.build(
-                ".",
-                tags=[f"{PROJECT_NAME}-{AGENT_NAME}:template-{template_name}"],
-                target=f"template-{template_name}",
-                load=True,
-            )
-            print(f"✓ Built template: {template_name}")
-        except Exception as e:
-            print(f"✗ Failed to build template {template_name}: {e}")
-
-    print("\n✓ Template build complete!")
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Launch and manage claude-agent instances",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  ./launch.py --fresh                    Launch new container with fresh workspace volume
-  ./launch.py --fresh --template python-ml   Launch with Python ML template
-  ./launch.py --fresh --rebuild          Launch with fresh workspace and rebuild image
-  ./launch.py --workspace ws_123_abc     Launch container with existing workspace volume
-  ./launch.py --status                   Show running containers only
-  ./launch.py --list-workspaces          Show available workspace volumes
-  ./launch.py --stop ws_123_abc          Stop container (keeps container and volume)
-  ./launch.py --stop-all                 Stop all running containers
-  ./launch.py --kill-all                 Stop all containers and cleanup volumes
-  ./launch.py --cleanup                  Remove stopped containers and unused volumes
-
-Template Management:
-  ./launch.py --list-templates           Show available workspace templates
-  ./launch.py --build-templates          Build all template Docker images
+  uv run launch.py --fresh                    Launch new container with fresh workspace volume
+  uv run launch.py --fresh --rebuild          Launch with fresh workspace and rebuild image
+  uv run launch.py --workspace ws_123_abc     Launch container with existing workspace volume
+  uv run launch.py --status                   Show running containers only
+  uv run launch.py --list-workspaces          Show available workspace volumes
+  uv run launch.py --stop ws_123_abc          Stop container (keeps container and volume)
+  uv run launch.py --stop-all                 Stop all running containers
+  uv run launch.py --kill-all                 Stop all containers and cleanup volumes
+  uv run launch.py --cleanup                  Remove stopped containers and unused volumes
 
 Container Lifecycle:
   - Fresh launch creates new workspace volume + container
   - Stop only stops the container (can restart later)
   - Cleanup removes stopped containers + orphaned workspace volumes
-  - Templates provide pre-configured development environments
         """,
     )
 
@@ -634,26 +544,11 @@ Container Lifecycle:
         action="store_true",
         help="Remove stopped containers and unused workspace volumes",
     )
-    group.add_argument(
-        "--list-templates",
-        action="store_true",
-        help="list available workspace templates",
-    )
-    group.add_argument(
-        "--build-templates",
-        action="store_true",
-        help="Build all template Docker images",
-    )
 
     parser.add_argument(
         "--rebuild",
         action="store_true",
         help="Force rebuild of Docker image before launching",
-    )
-    parser.add_argument(
-        "--template",
-        type=str,
-        help="Use a workspace template (empty, python-ml, nextjs, data-science)",
     )
 
     args = parser.parse_args()
@@ -701,17 +596,9 @@ Container Lifecycle:
     elif args.cleanup:
         cleanup_unused_workspaces()
 
-    elif args.list_templates:
-        list_templates()
-
-    elif args.build_templates:
-        build_templates()
-
     elif args.fresh:
         workspace_id = generate_workspace_id()
-        success = launch_container(
-            workspace_id, rebuild=args.rebuild, template=args.template
-        )
+        success = launch_container(workspace_id, rebuild=args.rebuild)
 
         if success:
             print("\n" + "=" * 50)

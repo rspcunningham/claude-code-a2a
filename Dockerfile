@@ -1,5 +1,5 @@
 # Base stage - common dependencies
-FROM python:3.13-slim AS base
+FROM python:3.13-slim
 
 WORKDIR /app
 
@@ -26,19 +26,20 @@ RUN uv sync --frozen
 # Copy application code
 COPY . .
 
-# Create workspace directory
+# Create workspace directory and initialize
 RUN mkdir -p /workspace
+WORKDIR /workspace
+RUN git init
+COPY container_files/pyproject.toml .
+COPY container_files/CLAUDE.md .
+RUN mkdir -p user_uploaded_data
+RUN mkdir -p agent_outputs
+RUN mkdir -p scripts
+RUN uv venv
 
-# Expose
+# finish setup of container
+WORKDIR /app
 EXPOSE 9999
 
 # Run the server
-CMD ["uv", "run", "python", "a2a_server.py"]
-
-# Template: Empty (default)
-FROM base AS template-empty
-# No additional setup - clean workspace
-
-# Template: Basic (just files and directories)
-FROM base AS template-basic
-COPY templates/basic/ /workspace/
+CMD ["uv", "run", "a2a_server.py"]
