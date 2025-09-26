@@ -23,9 +23,10 @@ from a2a.utils.constants import (
 
 from claude_agent import ClaudeAgentExecutor
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+import file_management
 from loguru import logger
 
 INTERNAL_PORT = 9999
@@ -46,13 +47,8 @@ base_agent_card = AgentCard(
     description="Just an agent",
     url=f"http://localhost:{INTERNAL_PORT}/",
     version="1.0.0",
-    default_input_modes=[
-        "text/plain",
-        "application/octet-stream"
-    ],
-    default_output_modes=[
-        "text/plain"
-    ],
+    default_input_modes=["text/plain", "application/octet-stream"],
+    default_output_modes=["text/plain"],
     capabilities=AgentCapabilities(streaming=False),
     skills=[skill],
 )
@@ -74,11 +70,75 @@ async def root_handler() -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
 
+async def list_user_files_handler(request: Request) -> JSONResponse:
+    files = file_management.list_user_files()
+    return JSONResponse({"files": files})
+
+
+async def upload_user_file_handler(request: Request) -> JSONResponse:
+    form = await request.form()
+    file = form.get("file")
+    if not file or not hasattr(file, "filename"):
+        return JSONResponse({"error": "No file provided"}, status_code=400)
+
+    content = await file.read()
+    file_path = file_management.save_user_file(file.filename, content)
+    return JSONResponse(
+        {"message": "File uploaded", "filename": file.filename, "path": file_path}
+    )
+
+
+async def list_agent_outputs_handler(request: Request) -> JSONResponse:
+    files = file_management.list_agent_outputs()
+    return JSONResponse({"files": files})
+
+
+async def download_agent_output_handler(request: Request) -> Response:
+    filename = request.path_params.get("filename")
+    if not filename:
+        return JSONResponse({"error": "Filename required"}, status_code=400)
+
+    try:
+        content = file_management.get_agent_output_file(filename)
+        return Response(
+            content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    except FileNotFoundError:
+        return JSONResponse({"error": "File not found"}, status_code=404)
+
+
+async def download_user_file_handler(request: Request) -> Response:
+    filename = request.path_params.get("filename")
+    if not filename:
+        return JSONResponse({"error": "Filename required"}, status_code=400)
+
+    try:
+        content = file_management.get_user_file(filename)
+        return Response(
+            content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    except FileNotFoundError:
+        return JSONResponse({"error": "File not found"}, status_code=404)
+
+
 # Add routes for both GET and POST on root
 app.router.routes.extend(
     [
         Route("/", root_handler, methods=["GET"]),
         Route("/", root_handler, methods=["POST"]),
+        Route("/files/user", list_user_files_handler, methods=["GET"]),
+        Route("/files/user", upload_user_file_handler, methods=["POST"]),
+        Route("/files/user/{filename}", download_user_file_handler, methods=["GET"]),
+        Route("/files/agent-outputs", list_agent_outputs_handler, methods=["GET"]),
+        Route(
+            "/files/agent-outputs/{filename}",
+            download_agent_output_handler,
+            methods=["GET"],
+        ),
     ]
 )
 

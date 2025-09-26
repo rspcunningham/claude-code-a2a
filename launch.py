@@ -3,6 +3,7 @@ import sys
 import os
 import time
 import secrets
+import socket
 from dataclasses import dataclass
 from python_on_whales import docker
 
@@ -66,6 +67,30 @@ def get_port_info(container) -> str:
     except Exception:
         pass
     return "No port"
+
+
+def is_port_available(port: int) -> bool:
+    """Check if a port is available on localhost"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            result = sock.connect_ex(("localhost", port))
+            return result != 0  # Port is available if connection fails
+    except Exception:
+        return False
+
+
+def get_container_port(container) -> int:
+    """Extract port number from container, returns None if no port found"""
+    try:
+        if container.network_settings and container.network_settings.ports:
+            ports = container.network_settings.ports.get("9999/tcp")
+            if ports and ports[0]:
+                return int(ports[0]["HostPort"])
+    except Exception:
+        pass
+
+    raise ValueError("No port found")
 
 
 def get_agents(running_only: bool = True) -> list[Agent]:
@@ -175,10 +200,18 @@ def print_volumes(volumes: list[Volume], title: str = "Available Workspace Volum
     print_table(headers, rows, title)
 
 
-def launch_container(workspace_id, rebuild=False):
+def launch_container(workspace_id, rebuild=False, port=None):
     """Launch a new container with the specified workspace"""
     volume_name = f"{PROJECT_NAME}-{workspace_id}"
     container_name = f"{AGENT_NAME}-{workspace_id}"
+
+    # Check if specified port is available
+    if port is not None:
+        if not is_port_available(port):
+            print(
+                f"Error: Port {port} is not available. Please choose a different port or let the system assign one automatically."
+            )
+            return False
 
     # Check if container already exists
     existing_container = None
@@ -277,15 +310,16 @@ def launch_container(workspace_id, rebuild=False):
         except FileNotFoundError:
             pass  # .env file is optional
 
+        # Determine port mapping
+        port_mapping = (port, 9999) if port is not None else (0, 9999)
+
         # Launch container directly with docker run
         docker.container.run(
             image_name,
             name=container_name,
             detach=True,
             volumes=[(volume_name, "/workspace")],
-            publish=[
-                (0, 9999)
-            ],  # Random host port mapping (0 means any available port)
+            publish=[port_mapping],  # Use specified port or random if port is None
             envs=env_vars,
             restart="unless-stopped",
             networks=[NETWORK_NAME],  # Connect to compose network
@@ -493,7 +527,9 @@ def main():
 Examples:
   uv run launch.py --fresh                    Launch new container with fresh workspace volume
   uv run launch.py --fresh --rebuild          Launch with fresh workspace and rebuild image
+  uv run launch.py --fresh --port 5000        Launch new container on specific port
   uv run launch.py --workspace ws_123_abc     Launch container with existing workspace volume
+  uv run launch.py --relaunch                 Relaunch current container with fresh workspace and rebuild
   uv run launch.py --status                   Show running containers only
   uv run launch.py --list-workspaces          Show available workspace volumes
   uv run launch.py --stop ws_123_abc          Stop container (keeps container and volume)
@@ -544,11 +580,21 @@ Container Lifecycle:
         action="store_true",
         help="Remove stopped containers and unused workspace volumes",
     )
+    group.add_argument(
+        "--relaunch",
+        action="store_true",
+        help="Relaunch the currently running container with fresh workspace and rebuild (requires exactly 1 running container)",
+    )
 
     parser.add_argument(
         "--rebuild",
         action="store_true",
         help="Force rebuild of Docker image before launching",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        help="Specify the host port to bind to (if not specified, a random available port will be used)",
     )
 
     args = parser.parse_args()
@@ -596,9 +642,65 @@ Container Lifecycle:
     elif args.cleanup:
         cleanup_unused_workspaces()
 
+    elif args.relaunch:
+        # Check that exactly 1 container is running
+        running_agents = get_agents(running_only=True)
+
+        if len(running_agents) == 0:
+            print(
+                "Error: No running containers found. Use --fresh to launch a new container."
+            )
+            sys.exit(1)
+        elif len(running_agents) > 1:
+            print(
+                f"Error: Found {len(running_agents)} running containers. Relaunch requires exactly 1 running container."
+            )
+            print(
+                "Use --stop to stop specific containers or --stop-all to stop all containers first."
+            )
+            sys.exit(1)
+
+        # Get the running container details
+        agent = running_agents[0]
+        print(f"Found running container: {agent.container_name}")
+
+        # Get the port from the actual container
+        try:
+            container = docker.container.inspect(agent.container_name)
+            port = get_container_port(container)
+            print(f"Container is running on port: {port}")
+        except Exception as e:
+            print(f"Error inspecting container: {e}")
+            sys.exit(1)
+
+        # Stop and remove the container
+        print(f"Stopping and removing container: {agent.container_name}")
+        try:
+            docker.container.stop(agent.container_name)
+            docker.container.remove(agent.container_name)
+            print(f"✓ Removed container: {agent.container_name}")
+        except Exception as e:
+            print(f"Error stopping/removing container: {e}")
+            sys.exit(1)
+
+        # Launch fresh container with rebuild on same port
+        workspace_id = generate_workspace_id()
+        print(f"\nLaunching fresh container with workspace: {workspace_id}")
+        if port:
+            print(f"Using same port: {port}")
+
+        success = launch_container(workspace_id, rebuild=True, port=port)
+
+        if success:
+            print("\n" + "=" * 50)
+            agents = get_agents(running_only=True)
+            print_agents_status(agents, "Relaunched Agent")
+
+        sys.exit(0 if success else 1)
+
     elif args.fresh:
         workspace_id = generate_workspace_id()
-        success = launch_container(workspace_id, rebuild=args.rebuild)
+        success = launch_container(workspace_id, rebuild=args.rebuild, port=args.port)
 
         if success:
             print("\n" + "=" * 50)
@@ -620,7 +722,7 @@ Container Lifecycle:
             print("Use --list-workspaces to see available workspaces.", file=sys.stderr)
             sys.exit(1)
 
-        success = launch_container(args.workspace, rebuild=args.rebuild)
+        success = launch_container(args.workspace, rebuild=args.rebuild, port=args.port)
 
         if success:
             print("\n" + "=" * 50)

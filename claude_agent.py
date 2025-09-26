@@ -48,6 +48,7 @@ def process_message_parts(message):
                 # Save the file content (decode from base64)
                 import base64
 
+
                 with open(file_path, "wb") as f:
                     f.write(base64.b64decode(actual_part.file.bytes))
 
