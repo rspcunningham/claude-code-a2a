@@ -8,7 +8,6 @@ from a2a.types import TextPart, FilePart
 
 from claude_code_sdk import ClaudeCodeOptions, ClaudeSDKClient
 
-from httpx._transports.default import A
 from loguru import logger
 from typing import override
 
@@ -33,22 +32,23 @@ def process_message_parts(message):
     # Process parts in order to maintain exact positioning
     for part in message.parts:
         # Handle the nested Part structure where the actual content is in part.root
-        if hasattr(part, 'root'):
+        if hasattr(part, "root"):
             actual_part = part.root
         else:
             actual_part = part
 
         if isinstance(actual_part, TextPart):
-            if hasattr(actual_part, 'text'):
+            if hasattr(actual_part, "text"):
                 user_prompt_parts.append(actual_part.text)
         elif isinstance(actual_part, FilePart):
-            if hasattr(actual_part, 'file') and hasattr(actual_part.file, 'name'):
+            if hasattr(actual_part, "file") and hasattr(actual_part.file, "name"):
                 filename = actual_part.file.name
                 file_path = f"{AGENT_CWD}/{UPLOAD_DIR}/{filename}"
 
                 # Save the file content (decode from base64)
                 import base64
-                with open(file_path, 'wb') as f:
+
+                with open(file_path, "wb") as f:
                     f.write(base64.b64decode(actual_part.file.bytes))
 
                 user_prompt_parts.append(f"[{UPLOAD_DIR}/{filename}]")

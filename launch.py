@@ -5,7 +5,6 @@ import time
 import secrets
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
 from python_on_whales import docker
 
 # Configuration constants
@@ -68,16 +67,18 @@ def get_port_info(container) -> str:
     return "No port"
 
 
-def get_agents(running_only: bool = True) -> List[Agent]:
+def get_agents(running_only: bool = True) -> list[Agent]:
     """Get list of claude agent containers"""
     try:
-        containers = docker.container.list(all=not running_only, filters={"name": AGENT_NAME})
+        containers = docker.container.list(
+            all=not running_only, filters={"name": AGENT_NAME}
+        )
         return [
             Agent(
                 container_name=container.name,
                 workspace_id=extract_workspace_id(container),
                 port_info=get_port_info(container),
-                status=container.state.status
+                status=container.state.status,
             )
             for container in containers
         ]
@@ -86,7 +87,7 @@ def get_agents(running_only: bool = True) -> List[Agent]:
         return []
 
 
-def print_table(headers: List[str], rows: List[List[str]], title: str = ""):
+def print_table(headers: list[str], rows: list[list[str]], title: str = ""):
     """Generic table printer"""
     if not rows:
         print(f"{title}: None" if title else "No data found")
@@ -104,40 +105,55 @@ def print_table(headers: List[str], rows: List[List[str]], title: str = ""):
     print("┌" + "┬".join("─" * (w + 2) for w in col_widths) + "┐")
 
     # Headers
-    print("│" + "│".join(f" {h:<{col_widths[i]}} " for i, h in enumerate(headers)) + "│")
+    print(
+        "│" + "│".join(f" {h:<{col_widths[i]}} " for i, h in enumerate(headers)) + "│"
+    )
 
     # Separator
     print("├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤")
 
     # Data rows
     for row in rows:
-        print("│" + "│".join(f" {cell:<{col_widths[i]}} " for i, cell in enumerate(row)) + "│")
+        print(
+            "│"
+            + "│".join(f" {cell:<{col_widths[i]}} " for i, cell in enumerate(row))
+            + "│"
+        )
 
     # Bottom border
     print("└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘")
 
 
-def print_agents_status(agents: List[Agent], title: str = "Running Claude Agents"):
+def print_agents_status(agents: list[Agent], title: str = "Running Claude Agents"):
     """Print formatted table of agent status"""
     headers = ["Container", "Workspace", "Host Port", "Status"]
     rows = [
-        [agent.container_name[:31], agent.workspace_id[:20], agent.port_info[:15], agent.status[:11]]
+        [
+            agent.container_name[:31],
+            agent.workspace_id[:20],
+            agent.port_info[:15],
+            agent.status[:11],
+        ]
         for agent in agents
     ]
     print_table(headers, rows, title)
 
 
-def list_available_volumes() -> List[Volume]:
-    """List all available workspace volumes"""
+def list_available_volumes() -> list[Volume]:
+    """list all available workspace volumes"""
     try:
         all_volumes = docker.volume.list()
-        project_volumes = [v for v in all_volumes if v.name.startswith(f"{PROJECT_NAME}-ws_")]
+        project_volumes = [
+            v for v in all_volumes if v.name.startswith(f"{PROJECT_NAME}-ws_")
+        ]
 
         volumes = [
             Volume(
                 workspace_id=volume.name.replace(f"{PROJECT_NAME}-", ""),
                 volume_name=volume.name,
-                created=volume.created_at if hasattr(volume, 'created_at') else "Unknown"
+                created=volume.created_at
+                if hasattr(volume, "created_at")
+                else "Unknown",
             )
             for volume in project_volumes
         ]
@@ -148,7 +164,7 @@ def list_available_volumes() -> List[Volume]:
         return []
 
 
-def print_volumes(volumes: List[Volume], title: str = "Available Workspace Volumes"):
+def print_volumes(volumes: list[Volume], title: str = "Available Workspace Volumes"):
     """Print formatted table of available workspace volumes"""
     headers = ["Workspace ID", "Volume Name", "Created"]
     rows = [
@@ -204,7 +220,7 @@ def launch_container(workspace_id, rebuild=False, template=None):
                     ports = container_info.network_settings.ports.get("9999/tcp")
                     if ports and ports[0]:
                         port_info = f"localhost:{ports[0]['HostPort']}"
-            except:
+            except Exception:
                 pass
 
             print(f"✓ Container resumed: {container_name} -> {port_info}")
@@ -413,10 +429,14 @@ def cleanup_unused_workspaces():
     try:
         # Get all volumes that belong to our project
         all_volumes = docker.volume.list()
-        project_volumes = [v for v in all_volumes if v.name.startswith(f"{PROJECT_NAME}-ws_")]
+        project_volumes = [
+            v for v in all_volumes if v.name.startswith(f"{PROJECT_NAME}-ws_")
+        ]
 
         # Get volume names that have running containers (should be kept)
-        running_containers = [c for c in docker.container.list(filters={"name": "claude-agent"})]
+        running_containers = [
+            c for c in docker.container.list(filters={"name": "claude-agent"})
+        ]
         running_container_volumes = set()
         for container in running_containers:
             if container.name.startswith("claude-agent-ws_"):
@@ -426,8 +446,10 @@ def cleanup_unused_workspaces():
 
         # Remove volumes that belong to stopped containers OR have no containers at all
         for volume in project_volumes:
-            if (volume.name in stopped_container_volumes or
-                volume.name not in running_container_volumes):
+            if (
+                volume.name in stopped_container_volumes
+                or volume.name not in running_container_volumes
+            ):
                 cleanup_actions.append(
                     {
                         "type": "volume",
@@ -493,7 +515,7 @@ def get_available_templates():
                         if line and not line.startswith("#"):
                             description = line
                             break
-                except:
+                except Exception:
                     pass
 
             templates.append(
@@ -513,12 +535,11 @@ def get_available_templates():
 
 
 def list_templates():
-    """List available workspace templates"""
+    """list available workspace templates"""
     templates = get_available_templates()
     headers = ["Template", "Description"]
     rows = [
-        [template["name"][:14], template["description"][:56]]
-        for template in templates
+        [template["name"][:14], template["description"][:56]] for template in templates
     ]
     print_table(headers, rows, "Available Workspace Templates")
 
@@ -545,7 +566,7 @@ def build_templates():
         except Exception as e:
             print(f"✗ Failed to build template {template_name}: {e}")
 
-    print(f"\n✓ Template build complete!")
+    print("\n✓ Template build complete!")
 
 
 def main():
@@ -590,7 +611,7 @@ Container Lifecycle:
     group.add_argument(
         "--list-workspaces",
         action="store_true",
-        help="List available workspace volumes",
+        help="list available workspace volumes",
     )
     group.add_argument(
         "--stop",
@@ -616,7 +637,7 @@ Container Lifecycle:
     group.add_argument(
         "--list-templates",
         action="store_true",
-        help="List available workspace templates",
+        help="list available workspace templates",
     )
     group.add_argument(
         "--build-templates",
@@ -666,12 +687,14 @@ Container Lifecycle:
         stop_success = stop_all_containers()
 
         if not stop_success:
-            print("Warning: Some containers failed to stop, but continuing with cleanup...")
+            print(
+                "Warning: Some containers failed to stop, but continuing with cleanup..."
+            )
 
         print("\nStep 2: Cleaning up stopped containers and unused volumes...")
         cleanup_unused_workspaces()
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("✓ Kill-all complete: All containers stopped and cleaned up")
         sys.exit(0)
 
@@ -704,9 +727,10 @@ Container Lifecycle:
             docker.volume.inspect(volume_name)
         except Exception:
             print(
-                f"Error: Workspace volume '{volume_name}' does not exist.", file=sys.stderr
+                f"Error: Workspace volume '{volume_name}' does not exist.",
+                file=sys.stderr,
             )
-            print(f"Use --list-workspaces to see available workspaces.", file=sys.stderr)
+            print("Use --list-workspaces to see available workspaces.", file=sys.stderr)
             sys.exit(1)
 
         success = launch_container(args.workspace, rebuild=args.rebuild)

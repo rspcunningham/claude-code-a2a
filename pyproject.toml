@@ -28,3 +28,4 @@ reportUnusedCallResult = false
 reportAny = false
 reportUntypedFunctionDecorator = false
 reportUnusedFunction = false
+reportUnknownLambdaType = false

@@ -3,7 +3,6 @@ import asyncio
 import argparse
 import base64
 import mimetypes
-from pathlib import Path
 from uuid import uuid4
 from devtools import pprint
 import httpx
@@ -92,10 +91,11 @@ class A2AREPL:
 
         for word in words:
             # Detect absolute paths that look like dragged files
-            if (word.startswith('/') or  # Unix/macOS
-                (len(word) > 2 and word[1:3] == ':\\') or  # Windows C:\
-                word.startswith('~/')):  # Home directory
-
+            if (
+                word.startswith("/")  # Unix/macOS
+                or (len(word) > 2 and word[1:3] == ":\\")  # Windows C:\
+                or word.startswith("~/")
+            ):  # Home directory
                 # Check if it's actually a file
                 expanded_path = os.path.expanduser(word)
                 if os.path.isfile(expanded_path):
@@ -106,12 +106,12 @@ class A2AREPL:
             else:
                 processed_words.append(word)
 
-        return ' '.join(processed_words)
+        return " ".join(processed_words)
 
     def split_text_and_files(self, text: str) -> list[str]:
         """Split text into segments, keeping @file references as separate items"""
         # Use regex split that keeps the delimiters (the @file parts)
-        pattern = r'(@[^\s]+)'
+        pattern = r"(@[^\s]+)"
         return [segment for segment in re.split(pattern, text) if segment]
 
     def resolve_file_path(self, file_path: str) -> str | None:
@@ -128,7 +128,7 @@ class A2AREPL:
             return os.path.abspath(file_path)
 
         # Try in uploads directory
-        uploads_path = os.path.join(os.getcwd(), 'uploads', file_path)
+        uploads_path = os.path.join(os.getcwd(), "uploads", file_path)
         if os.path.isfile(uploads_path):
             return uploads_path
 
@@ -149,19 +149,19 @@ class A2AREPL:
                 mime_type = "application/octet-stream"
 
             # Read and encode file
-            with open(resolved_path, 'rb') as f:
+            with open(resolved_path, "rb") as f:
                 file_data = f.read()
-                base64_data = base64.b64encode(file_data).decode('utf-8')
+                base64_data = base64.b64encode(file_data).decode("utf-8")
 
-            print(f"{Colors.GREEN}Loaded file: {file_name} ({len(file_data)} bytes, {mime_type}){Colors.RESET}")
+            print(
+                f"{Colors.GREEN}Loaded file: {file_name} ({len(file_data)} bytes, {mime_type}){Colors.RESET}"
+            )
 
             return FilePart(
                 kind="file",
                 file=FileWithBytes(
-                    name=file_name,
-                    mime_type=mime_type,
-                    bytes=base64_data
-                )
+                    name=file_name, mime_type=mime_type, bytes=base64_data
+                ),
             )
 
         except Exception as e:
@@ -248,7 +248,7 @@ class A2AREPL:
         # Create interleaved message parts
         parts = []
         for segment in segments:
-            if segment.startswith('@'):
+            if segment.startswith("@"):
                 # This is a file reference - remove @ and create FilePart
                 file_path = segment[1:]  # Remove the @ prefix
                 file_part = await self.read_file_as_part(file_path)
