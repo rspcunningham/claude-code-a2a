@@ -1,5 +1,5 @@
 # Base stage - common dependencies
-FROM python:3.13-slim as base
+FROM python:3.13-slim AS base
 
 WORKDIR /app
 
@@ -36,9 +36,9 @@ EXPOSE 9999
 CMD ["uv", "run", "python", "a2a_server.py"]
 
 # Template: Empty (default)
-FROM base as template-empty
+FROM base AS template-empty
 # No additional setup - clean workspace
 
 # Template: Basic (just files and directories)
-FROM base as template-basic
+FROM base AS template-basic
 COPY templates/basic/ /workspace/

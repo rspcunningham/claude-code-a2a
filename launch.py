@@ -4,6 +4,8 @@ import os
 import time
 import secrets
 from pathlib import Path
+from dataclasses import dataclass
+from typing import List, Optional, Dict, Any
 from python_on_whales import docker
 
 # Configuration constants
@@ -12,206 +14,153 @@ NETWORK_NAME = "fleet-of-agents_agent-network"
 AGENT_NAME = "claude-agent"
 
 
-def generate_workspace_id():
+@dataclass
+class Agent:
+    container_name: str
+    workspace_id: str
+    port_info: str
+    status: str
+
+
+@dataclass
+class Volume:
+    workspace_id: str
+    volume_name: str
+    created: str
+
+
+def generate_workspace_id() -> str:
     """Generate a unique workspace ID"""
     random_id = secrets.token_hex(6)  # 12 hex characters
     return f"ws_{random_id}"
 
 
-def get_workspace_path(workspace_id):
-    """Get the host path for a workspace"""
-    return Path.cwd() / "workspace" / workspace_id
+def extract_workspace_id(container) -> str:
+    """Extract workspace ID from container name or volume mounts"""
+    # Check for new naming scheme: claude-agent-ws_123_abc
+    if container.name.startswith(f"{AGENT_NAME}-ws_"):
+        return container.name.replace(f"{AGENT_NAME}-", "")
+
+    # Check for old docker-compose naming
+    if container.name.startswith("claude-code-a2a-claude-agent"):
+        try:
+            inspect = docker.container.inspect(container.name)
+            for mount in inspect.mounts:
+                if mount.destination == "/workspace" and mount.type == "volume":
+                    volume_name = mount.name
+                    if volume_name.startswith(f"{PROJECT_NAME}-"):
+                        return volume_name.replace(f"{PROJECT_NAME}-", "")
+        except Exception:
+            pass
+
+    return "unknown"
 
 
-def get_running_agents():
-    """Get list of running claude agent containers"""
+def get_port_info(container) -> str:
+    """Extract port information from container"""
     try:
-        containers = docker.container.list(filters={"name": AGENT_NAME})
-        agents = []
+        if container.network_settings and container.network_settings.ports:
+            ports = container.network_settings.ports.get("9999/tcp")
+            if ports and ports[0]:
+                return f"localhost:{ports[0]['HostPort']}"
+    except Exception:
+        pass
+    return "No port"
 
-        for container in containers:
-            # Extract workspace ID from container name
-            workspace_id = "unknown"
 
-            # Check for new naming scheme: claude-agent-ws_123_abc
-            if container.name.startswith(f"{AGENT_NAME}-ws_"):
-                workspace_id = container.name.replace(f"{AGENT_NAME}-", "")
-            # Check for old docker-compose naming
-            elif container.name.startswith("claude-code-a2a-claude-agent"):
-                # Try to extract from volume mounts
-                try:
-                    inspect = docker.container.inspect(container.name)
-                    for mount in inspect.mounts:
-                        if mount.destination == "/workspace":
-                            workspace_path = Path(mount.source)
-                            workspace_id = workspace_path.name
-                            break
-                except Exception:
-                    pass
-
-            # Get port mapping
-            port_info = "No port"
-            try:
-                if container.network_settings and container.network_settings.ports:
-                    ports = container.network_settings.ports.get("9999/tcp")
-                    if ports and ports[0]:
-                        port_info = f"localhost:{ports[0]['HostPort']}"
-            except Exception:
-                pass
-
-            agents.append(
-                {
-                    "container": container.name,
-                    "workspace": workspace_id,
-                    "port": port_info,
-                    "status": container.state.status,
-                }
+def get_agents(running_only: bool = True) -> List[Agent]:
+    """Get list of claude agent containers"""
+    try:
+        containers = docker.container.list(all=not running_only, filters={"name": AGENT_NAME})
+        return [
+            Agent(
+                container_name=container.name,
+                workspace_id=extract_workspace_id(container),
+                port_info=get_port_info(container),
+                status=container.state.status
             )
-
-        return agents
+            for container in containers
+        ]
     except Exception as e:
-        print(f"Error getting running agents: {e}", file=sys.stderr)
+        print(f"Error getting agents: {e}", file=sys.stderr)
         return []
 
 
-def get_all_agents():
-    """Get list of all claude agent containers (running and stopped)"""
-    try:
-        containers = docker.container.list(all=True, filters={"name": AGENT_NAME})
-        agents = []
+def print_table(headers: List[str], rows: List[List[str]], title: str = ""):
+    """Generic table printer"""
+    if not rows:
+        print(f"{title}: None" if title else "No data found")
+        return
 
-        for container in containers:
-            # Extract workspace ID from container name
-            workspace_id = "unknown"
+    col_widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(cell))
 
-            # Check for new naming scheme: claude-agent-ws_123_abc
-            if container.name.startswith(f"{AGENT_NAME}-ws_"):
-                workspace_id = container.name.replace(f"{AGENT_NAME}-", "")
-            # Check for old docker-compose naming
-            elif container.name.startswith("claude-code-a2a-claude-agent"):
-                # Try to extract from volume mounts
-                try:
-                    inspect = docker.container.inspect(container.name)
-                    for mount in inspect.mounts:
-                        if mount.destination == "/workspace":
-                            workspace_path = Path(mount.source)
-                            workspace_id = workspace_path.name
-                            break
-                except Exception:
-                    pass
+    if title:
+        print(f"\n{title}:")
 
-            # Get port mapping
-            port_info = "No port"
-            try:
-                if container.network_settings and container.network_settings.ports:
-                    ports = container.network_settings.ports.get("9999/tcp")
-                    if ports and ports[0]:
-                        port_info = f"localhost:{ports[0]['HostPort']}"
-            except Exception:
-                pass
+    # Top border
+    print("┌" + "┬".join("─" * (w + 2) for w in col_widths) + "┐")
 
-            agents.append(
-                {
-                    "container": container.name,
-                    "workspace": workspace_id,
-                    "port": port_info,
-                    "status": container.state.status,
-                }
-            )
+    # Headers
+    print("│" + "│".join(f" {h:<{col_widths[i]}} " for i, h in enumerate(headers)) + "│")
 
-        return agents
-    except Exception as e:
-        print(f"Error getting all agents: {e}", file=sys.stderr)
-        return []
+    # Separator
+    print("├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤")
+
+    # Data rows
+    for row in rows:
+        print("│" + "│".join(f" {cell:<{col_widths[i]}} " for i, cell in enumerate(row)) + "│")
+
+    # Bottom border
+    print("└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘")
 
 
-def print_agents_status(agents, title="Running Claude Agents"):
+def print_agents_status(agents: List[Agent], title: str = "Running Claude Agents"):
     """Print formatted table of agent status"""
-    if not agents:
-        print(f"{title}: None")
-        return
-
-    print(f"\n{title}:")
-    print(
-        "┌─────────────────────────────────┬──────────────────────┬─────────────────┬─────────────┐"
-    )
-    print(
-        "│ Container                       │ Workspace            │ Host Port       │ Status      │"
-    )
-    print(
-        "├─────────────────────────────────┼──────────────────────┼─────────────────┼─────────────┤"
-    )
-
-    for agent in agents:
-        container = agent["container"][:31]  # Truncate long names
-        workspace = agent["workspace"][:20]  # Increased from 12 to 20
-        port = agent["port"][:15]
-        status = agent["status"][:11]
-        print(f"│ {container:<31} │ {workspace:<20} │ {port:<15} │ {status:<11} │")
-
-    print(
-        "└─────────────────────────────────┴──────────────────────┴─────────────────┴─────────────┘"
-    )
+    headers = ["Container", "Workspace", "Host Port", "Status"]
+    rows = [
+        [agent.container_name[:31], agent.workspace_id[:20], agent.port_info[:15], agent.status[:11]]
+        for agent in agents
+    ]
+    print_table(headers, rows, title)
 
 
-def list_available_workspaces():
-    """List all available workspace directories"""
-    workspace_dir = Path.cwd() / "workspace"
-    if not workspace_dir.exists():
-        print("No workspace directory found.")
+def list_available_volumes() -> List[Volume]:
+    """List all available workspace volumes"""
+    try:
+        all_volumes = docker.volume.list()
+        project_volumes = [v for v in all_volumes if v.name.startswith(f"{PROJECT_NAME}-ws_")]
+
+        volumes = [
+            Volume(
+                workspace_id=volume.name.replace(f"{PROJECT_NAME}-", ""),
+                volume_name=volume.name,
+                created=volume.created_at if hasattr(volume, 'created_at') else "Unknown"
+            )
+            for volume in project_volumes
+        ]
+
+        return sorted(volumes, key=lambda x: x.workspace_id)
+    except Exception as e:
+        print(f"Error listing volumes: {e}")
         return []
 
-    workspaces = []
-    for item in workspace_dir.iterdir():
-        if item.is_dir() and item.name.startswith("ws_"):
-            workspaces.append(
-                {
-                    "id": item.name,
-                    "path": str(item),
-                    "size": sum(
-                        f.stat().st_size for f in item.rglob("*") if f.is_file()
-                    ),
-                }
-            )
 
-    return workspaces
-
-
-def print_workspaces(workspaces):
-    """Print formatted table of available workspaces"""
-    if not workspaces:
-        print("No workspaces found.")
-        return
-
-    print("\nAvailable Workspaces:")
-    print(
-        "┌──────────────────┬─────────────────────────────────────────┬──────────────┐"
-    )
-    print(
-        "│ Workspace ID     │ Path                                    │ Size (bytes) │"
-    )
-    print(
-        "├──────────────────┼─────────────────────────────────────────┼──────────────┤"
-    )
-
-    for ws in workspaces:
-        ws_id = ws["id"][:16]
-        path = ws["path"][:39]
-        size = f"{ws['size']:,}"[:12]
-        print(f"│ {ws_id:<16} │ {path:<39} │ {size:>12} │")
-
-    print(
-        "└──────────────────┴─────────────────────────────────────────┴──────────────┘"
-    )
+def print_volumes(volumes: List[Volume], title: str = "Available Workspace Volumes"):
+    """Print formatted table of available workspace volumes"""
+    headers = ["Workspace ID", "Volume Name", "Created"]
+    rows = [
+        [vol.workspace_id[:16], vol.volume_name[:39], str(vol.created)[:12]]
+        for vol in volumes
+    ]
+    print_table(headers, rows, title)
 
 
 def launch_container(workspace_id, rebuild=False, template=None):
     """Launch a new container with the specified workspace"""
-    workspace_path = get_workspace_path(workspace_id)
-
-    # Create workspace directory if it doesn't exist
-    workspace_path.mkdir(parents=True, exist_ok=True)
-
+    volume_name = f"{PROJECT_NAME}-{workspace_id}"
     container_name = f"{AGENT_NAME}-{workspace_id}"
 
     # Check if container already exists
@@ -226,13 +175,15 @@ def launch_container(workspace_id, rebuild=False, template=None):
             print(f"Container {container_name} is already running!")
             return True
         else:
-            # Check that workspace directory exists
-            if not workspace_path.exists():
+            # Check that workspace volume exists
+            try:
+                docker.volume.inspect(volume_name)
+            except Exception:
                 print(
-                    f"Error: Workspace directory '{workspace_path}' not found for existing container."
+                    f"Error: Workspace volume '{volume_name}' not found for existing container."
                 )
                 print(
-                    "The workspace may have been deleted. Use --cleanup to remove orphaned containers."
+                    "The volume may have been deleted. Use --cleanup to remove orphaned containers."
                 )
                 return False
 
@@ -261,7 +212,7 @@ def launch_container(workspace_id, rebuild=False, template=None):
 
     try:
         print(f"\nLaunching new container with workspace: {workspace_id}")
-        print(f"Workspace path: {workspace_path.absolute()}")
+        print(f"Volume name: {volume_name}")
         print(f"Container name: {container_name}")
 
         # Ensure heartbeat-logger is running first
@@ -298,6 +249,14 @@ def launch_container(workspace_id, rebuild=False, template=None):
         else:
             print(f"Using existing image: {image_name}")
 
+        # Create named volume if it doesn't exist
+        try:
+            docker.volume.inspect(volume_name)
+            print(f"Using existing volume: {volume_name}")
+        except Exception:
+            print(f"Creating new volume: {volume_name}")
+            docker.volume.create(volume_name)
+
         # Load .env file manually and merge with environment
         env_vars = {"HEARTBEAT_URL": "http://heartbeat-logger:8080/heartbeat"}
         try:
@@ -315,7 +274,7 @@ def launch_container(workspace_id, rebuild=False, template=None):
             image_name,
             name=container_name,
             detach=True,
-            volumes=[(str(workspace_path.absolute()), "/workspace")],
+            volumes=[(volume_name, "/workspace")],
             publish=[
                 (0, 9999)
             ],  # Random host port mapping (0 means any available port)
@@ -372,16 +331,16 @@ def stop_container(workspace_id):
         pass
 
     # Fallback to searching through running agents
-    agents = get_running_agents()
+    agents = get_agents(running_only=True)
     for agent in agents:
-        if agent["workspace"] == workspace_id:
+        if agent.workspace_id == workspace_id:
             try:
-                docker.container.stop(agent["container"])
-                print(f"✓ Stopped container: {agent['container']}")
+                docker.container.stop(agent.container_name)
+                print(f"✓ Stopped container: {agent.container_name}")
                 return True
             except Exception as e:
                 print(
-                    f"Error stopping container {agent['container']}: {e}",
+                    f"Error stopping container {agent.container_name}: {e}",
                     file=sys.stderr,
                 )
                 return False
@@ -390,13 +349,42 @@ def stop_container(workspace_id):
     return False
 
 
+def stop_all_containers():
+    """Stop all running claude agent containers"""
+    agents = get_agents(running_only=True)
+
+    if not agents:
+        print("No running containers found")
+        return True
+
+    print(f"Found {len(agents)} running container(s) to stop:")
+    for agent in agents:
+        print(f"  - {agent.container_name} ({agent.workspace_id})")
+
+    confirm = input(f"\nStop all {len(agents)} container(s)? (y/N): ")
+    if confirm.lower() != "y":
+        print("Stop cancelled.")
+        return False
+
+    success_count = 0
+    for agent in agents:
+        try:
+            docker.container.stop(agent.container_name)
+            print(f"✓ Stopped container: {agent.container_name}")
+            success_count += 1
+        except Exception as e:
+            print(f"✗ Failed to stop {agent.container_name}: {e}")
+
+    print(f"\n✓ Stop complete: {success_count}/{len(agents)} containers stopped")
+    return success_count == len(agents)
+
+
 def cleanup_unused_workspaces():
-    """Remove stopped containers and unused workspace directories"""
-    import shutil
-
+    """Remove stopped containers and their associated named volumes"""
     cleanup_actions = []
+    stopped_container_volumes = set()
 
-    # 1. Find stopped containers
+    # 1. Find stopped containers and their volumes
     try:
         all_containers = docker.container.list(
             all=True, filters={"name": "claude-agent"}
@@ -411,40 +399,48 @@ def cleanup_unused_workspaces():
                     "action": f"Remove stopped container: {container.name}",
                 }
             )
+
+            # Track volume name of stopped container
+            if container.name.startswith("claude-agent-ws_"):
+                workspace_id = container.name.replace("claude-agent-", "")
+                volume_name = f"{PROJECT_NAME}-{workspace_id}"
+                stopped_container_volumes.add(volume_name)
+
     except Exception as e:
         print(f"Error finding stopped containers: {e}")
 
-    # 2. Find unused workspace directories
-    workspaces = list_available_workspaces()
-    if workspaces:
-        # Get all workspace IDs that have any container (running or stopped)
-        try:
-            all_containers = docker.container.list(
-                all=True, filters={"name": "claude-agent"}
-            )
-            container_workspaces = set()
-            for container in all_containers:
-                if container.name.startswith("claude-agent-ws_"):
-                    workspace_id = container.name.replace("claude-agent-", "")
-                    container_workspaces.add(workspace_id)
-        except:
-            container_workspaces = set()
+    # 2. Find volumes to remove
+    try:
+        # Get all volumes that belong to our project
+        all_volumes = docker.volume.list()
+        project_volumes = [v for v in all_volumes if v.name.startswith(f"{PROJECT_NAME}-ws_")]
 
-        # Find workspaces with no containers at all
-        for ws in workspaces:
-            if ws["id"] not in container_workspaces:
+        # Get volume names that have running containers (should be kept)
+        running_containers = [c for c in docker.container.list(filters={"name": "claude-agent"})]
+        running_container_volumes = set()
+        for container in running_containers:
+            if container.name.startswith("claude-agent-ws_"):
+                workspace_id = container.name.replace("claude-agent-", "")
+                volume_name = f"{PROJECT_NAME}-{workspace_id}"
+                running_container_volumes.add(volume_name)
+
+        # Remove volumes that belong to stopped containers OR have no containers at all
+        for volume in project_volumes:
+            if (volume.name in stopped_container_volumes or
+                volume.name not in running_container_volumes):
                 cleanup_actions.append(
                     {
-                        "type": "workspace",
-                        "name": ws["id"],
-                        "path": ws["path"],
-                        "size": ws["size"],
-                        "action": f"Delete workspace directory: {ws['id']} ({ws['size']:,} bytes)",
+                        "type": "volume",
+                        "name": volume.name,
+                        "action": f"Delete volume: {volume.name}",
                     }
                 )
 
+    except Exception as e:
+        print(f"Error finding volumes: {e}")
+
     if not cleanup_actions:
-        print("Nothing to cleanup - no stopped containers or unused workspaces found.")
+        print("Nothing to cleanup - no stopped containers or unused volumes found.")
         return
 
     print(f"\nFound {len(cleanup_actions)} item(s) to cleanup:")
@@ -463,9 +459,9 @@ def cleanup_unused_workspaces():
             if item["type"] == "container":
                 docker.container.remove(item["name"])
                 print(f"✓ Removed container: {item['name']}")
-            elif item["type"] == "workspace":
-                shutil.rmtree(item["path"])
-                print(f"✓ Deleted workspace: {item['name']}")
+            elif item["type"] == "volume":
+                docker.volume.remove(item["name"])
+                print(f"✓ Deleted volume: {item['name']}")
             success_count += 1
         except Exception as e:
             print(f"✗ Failed to cleanup {item['name']}: {e}")
@@ -519,30 +515,12 @@ def get_available_templates():
 def list_templates():
     """List available workspace templates"""
     templates = get_available_templates()
-
-    if not templates:
-        print("No templates found.")
-        return
-
-    print("\nAvailable Workspace Templates:")
-    print(
-        "┌────────────────┬──────────────────────────────────────────────────────────┐"
-    )
-    print(
-        "│ Template       │ Description                                              │"
-    )
-    print(
-        "├────────────────┼──────────────────────────────────────────────────────────┤"
-    )
-
-    for template in templates:
-        name = template["name"][:14]
-        desc = template["description"][:56]
-        print(f"│ {name:<14} │ {desc:<56} │")
-
-    print(
-        "└────────────────┴──────────────────────────────────────────────────────────┘"
-    )
+    headers = ["Template", "Description"]
+    rows = [
+        [template["name"][:14], template["description"][:56]]
+        for template in templates
+    ]
+    print_table(headers, rows, "Available Workspace Templates")
 
 
 def build_templates():
@@ -576,23 +554,25 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  ./launch.py --fresh                    Launch new container with fresh workspace
+  ./launch.py --fresh                    Launch new container with fresh workspace volume
   ./launch.py --fresh --template python-ml   Launch with Python ML template
   ./launch.py --fresh --rebuild          Launch with fresh workspace and rebuild image
-  ./launch.py --workspace ws_123_abc     Launch container with existing workspace
+  ./launch.py --workspace ws_123_abc     Launch container with existing workspace volume
   ./launch.py --status                   Show running containers only
-  ./launch.py --list-workspaces          Show available workspaces
-  ./launch.py --stop ws_123_abc          Stop container (keeps container and workspace)
-  ./launch.py --cleanup                  Remove stopped containers and unused workspaces
+  ./launch.py --list-workspaces          Show available workspace volumes
+  ./launch.py --stop ws_123_abc          Stop container (keeps container and volume)
+  ./launch.py --stop-all                 Stop all running containers
+  ./launch.py --kill-all                 Stop all containers and cleanup volumes
+  ./launch.py --cleanup                  Remove stopped containers and unused volumes
 
 Template Management:
   ./launch.py --list-templates           Show available workspace templates
   ./launch.py --build-templates          Build all template Docker images
 
 Container Lifecycle:
-  - Fresh launch creates new workspace + container
+  - Fresh launch creates new workspace volume + container
   - Stop only stops the container (can restart later)
-  - Cleanup removes stopped containers + orphaned workspace dirs
+  - Cleanup removes stopped containers + orphaned workspace volumes
   - Templates provide pre-configured development environments
         """,
     )
@@ -610,18 +590,28 @@ Container Lifecycle:
     group.add_argument(
         "--list-workspaces",
         action="store_true",
-        help="List available workspace directories",
+        help="List available workspace volumes",
     )
     group.add_argument(
         "--stop",
         type=str,
         metavar="WORKSPACE_ID",
-        help="Stop container for specified workspace",
+        help="Stop container for specified workspace (or use --stop-all for all containers)",
+    )
+    group.add_argument(
+        "--stop-all",
+        action="store_true",
+        help="Stop all running claude agent containers",
+    )
+    group.add_argument(
+        "--kill-all",
+        action="store_true",
+        help="Stop all containers and cleanup (equivalent to --stop-all + --cleanup)",
     )
     group.add_argument(
         "--cleanup",
         action="store_true",
-        help="Remove stopped containers and unused workspace directories",
+        help="Remove stopped containers and unused workspace volumes",
     )
     group.add_argument(
         "--list-templates",
@@ -649,20 +639,41 @@ Container Lifecycle:
 
     # Always show current status first (except for --status only)
     if not args.status:
-        current_agents = get_running_agents()
+        current_agents = get_agents(running_only=True)
         print_agents_status(current_agents, "Current Running Agents")
 
     if args.status:
-        agents = get_all_agents()
+        agents = get_agents(running_only=False)
         print_agents_status(agents, "All Claude Agents (Running & Stopped)")
 
     elif args.list_workspaces:
-        workspaces = list_available_workspaces()
-        print_workspaces(workspaces)
+        volumes = list_available_volumes()
+        print_volumes(volumes)
 
     elif args.stop:
         success = stop_container(args.stop)
         sys.exit(0 if success else 1)
+
+    elif args.stop_all:
+        success = stop_all_containers()
+        sys.exit(0 if success else 1)
+
+    elif args.kill_all:
+        print("=== KILL ALL: Stopping all containers and cleaning up ===\n")
+
+        # Step 1: Stop all containers
+        print("Step 1: Stopping all running containers...")
+        stop_success = stop_all_containers()
+
+        if not stop_success:
+            print("Warning: Some containers failed to stop, but continuing with cleanup...")
+
+        print("\nStep 2: Cleaning up stopped containers and unused volumes...")
+        cleanup_unused_workspaces()
+
+        print(f"\n{'='*60}")
+        print("✓ Kill-all complete: All containers stopped and cleaned up")
+        sys.exit(0)
 
     elif args.cleanup:
         cleanup_unused_workspaces()
@@ -681,25 +692,28 @@ Container Lifecycle:
 
         if success:
             print("\n" + "=" * 50)
-            agents = get_running_agents()
+            agents = get_agents(running_only=True)
             print_agents_status(agents, "All Running Agents")
 
         sys.exit(0 if success else 1)
 
     elif args.workspace:
-        workspace_path = get_workspace_path(args.workspace)
-        if not workspace_path.exists():
+        # Check if volume exists for the workspace
+        volume_name = f"{PROJECT_NAME}-{args.workspace}"
+        try:
+            docker.volume.inspect(volume_name)
+        except Exception:
             print(
-                f"Error: Workspace '{args.workspace}' does not exist.", file=sys.stderr
+                f"Error: Workspace volume '{volume_name}' does not exist.", file=sys.stderr
             )
-            print(f"Expected path: {workspace_path.absolute()}", file=sys.stderr)
+            print(f"Use --list-workspaces to see available workspaces.", file=sys.stderr)
             sys.exit(1)
 
         success = launch_container(args.workspace, rebuild=args.rebuild)
 
         if success:
             print("\n" + "=" * 50)
-            agents = get_running_agents()
+            agents = get_agents(running_only=True)
             print_agents_status(agents, "All Running Agents")
 
         sys.exit(0 if success else 1)

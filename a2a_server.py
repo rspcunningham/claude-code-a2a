@@ -46,9 +46,14 @@ base_agent_card = AgentCard(
     description="Just an agent",
     url=f"http://localhost:{INTERNAL_PORT}/",
     version="1.0.0",
-    default_input_modes=["text"],
-    default_output_modes=["text"],
-    capabilities=AgentCapabilities(streaming=True),
+    default_input_modes=[
+        "text/plain",
+        "application/octet-stream"
+    ],
+    default_output_modes=[
+        "text/plain"
+    ],
+    capabilities=AgentCapabilities(streaming=False),
     skills=[skill],
 )
 

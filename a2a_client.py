@@ -1,6 +1,9 @@
 import os
 import asyncio
 import argparse
+import base64
+import mimetypes
+from pathlib import Path
 from uuid import uuid4
 from devtools import pprint
 import httpx
@@ -11,11 +14,16 @@ from a2a.client import A2ACardResolver, ClientFactory, ClientConfig
 from a2a.types import (
     Message,
     TextPart,
+    FilePart,
+    FileWithBytes,
 )
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Global configuration
+REQUEST_TIMEOUT = 60.0  # seconds
 
 
 # ANSI color codes
@@ -77,9 +85,92 @@ class A2AREPL:
 
         return text
 
+    def process_user_input(self, user_input: str) -> str:
+        """Process user input to detect dragged file paths and auto-convert to @ syntax"""
+        words = user_input.split()
+        processed_words = []
+
+        for word in words:
+            # Detect absolute paths that look like dragged files
+            if (word.startswith('/') or  # Unix/macOS
+                (len(word) > 2 and word[1:3] == ':\\') or  # Windows C:\
+                word.startswith('~/')):  # Home directory
+
+                # Check if it's actually a file
+                expanded_path = os.path.expanduser(word)
+                if os.path.isfile(expanded_path):
+                    processed_words.append(f"@{word}")
+                    print(f"{Colors.DIM}Detected file: {word}{Colors.RESET}")
+                else:
+                    processed_words.append(word)
+            else:
+                processed_words.append(word)
+
+        return ' '.join(processed_words)
+
+    def split_text_and_files(self, text: str) -> list[str]:
+        """Split text into segments, keeping @file references as separate items"""
+        # Use regex split that keeps the delimiters (the @file parts)
+        pattern = r'(@[^\s]+)'
+        return [segment for segment in re.split(pattern, text) if segment]
+
+    def resolve_file_path(self, file_path: str) -> str | None:
+        """Resolve a file path, checking multiple locations"""
+        # Expand home directory
+        expanded_path = os.path.expanduser(file_path)
+
+        # If it's already absolute and exists, use it
+        if os.path.isabs(expanded_path) and os.path.isfile(expanded_path):
+            return expanded_path
+
+        # Try relative to current directory
+        if os.path.isfile(file_path):
+            return os.path.abspath(file_path)
+
+        # Try in uploads directory
+        uploads_path = os.path.join(os.getcwd(), 'uploads', file_path)
+        if os.path.isfile(uploads_path):
+            return uploads_path
+
+        return None
+
+    async def read_file_as_part(self, file_path: str) -> FilePart | None:
+        """Read a file and convert it to a FilePart"""
+        try:
+            resolved_path = self.resolve_file_path(file_path)
+            if not resolved_path:
+                print(f"{Colors.RED}File not found: {file_path}{Colors.RESET}")
+                return None
+
+            # Get file info
+            file_name = os.path.basename(resolved_path)
+            mime_type, _ = mimetypes.guess_type(resolved_path)
+            if not mime_type:
+                mime_type = "application/octet-stream"
+
+            # Read and encode file
+            with open(resolved_path, 'rb') as f:
+                file_data = f.read()
+                base64_data = base64.b64encode(file_data).decode('utf-8')
+
+            print(f"{Colors.GREEN}Loaded file: {file_name} ({len(file_data)} bytes, {mime_type}){Colors.RESET}")
+
+            return FilePart(
+                kind="file",
+                file=FileWithBytes(
+                    name=file_name,
+                    mime_type=mime_type,
+                    bytes=base64_data
+                )
+            )
+
+        except Exception as e:
+            print(f"{Colors.RED}Error reading file {file_path}: {e}{Colors.RESET}")
+            return None
+
     async def initialize(self):
         """Initialize the client by fetching agent card and setting up connection"""
-        self.httpx_client = httpx.AsyncClient()
+        self.httpx_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
 
         resolver = A2ACardResolver(
             httpx_client=self.httpx_client,
@@ -148,11 +239,35 @@ class A2AREPL:
         if not self.client:
             raise RuntimeError("Client not initialized. Call initialize() first.")
 
+        # Process input for drag-and-drop file detection
+        processed_text = self.process_user_input(text)
+
+        # Split text into segments (text and @file references)
+        segments = self.split_text_and_files(processed_text)
+
+        # Create interleaved message parts
+        parts = []
+        for segment in segments:
+            if segment.startswith('@'):
+                # This is a file reference - remove @ and create FilePart
+                file_path = segment[1:]  # Remove the @ prefix
+                file_part = await self.read_file_as_part(file_path)
+                if file_part:
+                    parts.append(file_part)
+            else:
+                # This is text - create TextPart (only if non-empty)
+                if segment.strip():
+                    parts.append(TextPart(text=segment))
+
+        # If no parts were created, add the original text
+        if not parts:
+            parts.append(TextPart(text=text))
+
         # Create message with new API
         message = Message(
             message_id=uuid4().hex,
             role="user",  # type: ignore
-            parts=[TextPart(text=text)],  # type: ignore
+            parts=parts,  # type: ignore
             context_id=self.context_id,
         )
 
@@ -199,6 +314,14 @@ class A2AREPL:
         )
         print(
             f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}"
+        )
+        print()
+        print(f"{Colors.DIM}File uploads:{Colors.RESET}")
+        print(
+            f"{Colors.YELLOW}@filename{Colors.RESET}    {Colors.DIM}- upload file (e.g., 'Analyze @data.csv'){Colors.RESET}"
+        )
+        print(
+            f"{Colors.YELLOW}drag & drop{Colors.RESET}  {Colors.DIM}- drag files from Finder/Explorer into terminal{Colors.RESET}"
         )
         print()
 
@@ -270,6 +393,14 @@ class A2AREPL:
                     )
                     print(
                         f"{Colors.CYAN}/quit{Colors.RESET}   {Colors.DIM}- exit the session{Colors.RESET}"
+                    )
+                    print()
+                    print(f"{Colors.DIM}File uploads:{Colors.RESET}")
+                    print(
+                        f"{Colors.YELLOW}@filename{Colors.RESET}    {Colors.DIM}- upload file (e.g., 'Analyze @data.csv'){Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.YELLOW}drag & drop{Colors.RESET}  {Colors.DIM}- drag files from Finder/Explorer into terminal{Colors.RESET}"
                     )
                     continue
 
